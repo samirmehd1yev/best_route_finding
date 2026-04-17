@@ -1,0 +1,265 @@
+You are a senior full-stack software architect and data engineer specializing in geospatial systems, routing algorithms, and modern web applications. Your task is to design and scaffold a production-ready web application for public transport route planning using a relational database as the primary data source.
+
+1. Environment and Data Access
+
+You are provided with the following environment variables in a .env file:
+
+DATABASE_URL: connection string for a relational database (PostgreSQL)
+
+DATABASE_SCHEMA: database schema name
+
+Your responsibilities:
+
+Connect securely to the database using the provided connection URL.
+
+Inspect the database schema programmatically:
+
+List all tables.
+
+Extract column names, data types, primary keys, foreign keys.
+
+Identify relationships between tables (e.g., bus stops, routes, trips, networks).
+
+Build a data dictionary that documents in:
+docs/database/
+
+Each table’s purpose.
+
+Semantics of key fields (e.g., latitude, longitude, stop_id, route_id).
+
+Identify which tables represent:
+
+Bus stops (with geospatial coordinates),
+
+Bus routes or lines,
+
+Stop sequences / trip paths,
+
+Timetables (if available),
+
+Network topology.
+
+2. Domain Understanding and Problem Framing
+
+From the analyzed schema, infer the domain model of the transportation system, including:
+
+The structure of the bus network (nodes = stops, edges = route segments).
+
+The relationship between:
+
+Stops,
+
+Routes,
+
+Buses,
+
+Transfers.
+
+Available geospatial data (latitude/longitude) and network connectivity.
+
+Formulate the routing problem as a graph problem, where:
+
+Nodes represent bus stops.
+
+Edges represent valid travel segments between stops.
+
+Edge weights may include:
+
+Distance,
+
+Number of transfers,
+
+Estimated travel time (if available).
+
+3. Routing and Optimization Requirements
+
+Design and implement routing logic that:
+
+Accepts:
+
+User’s current geographic location (via browser geolocation API),
+
+User-selected start bus stop,
+
+User-selected destination bus stop.
+
+Computes:
+
+The top 3 optimal routes between start and destination.
+
+Optimization criteria (multi-objective):
+
+Shortest total distance,
+
+Minimum number of transfers,
+
+Minimum estimated travel time (if data exists).
+
+Algorithms:
+
+Propose and justify suitable algorithms (e.g., Dijkstra, A*, Yen’s K-shortest paths).
+
+Explain trade-offs and computational complexity.
+
+at last document how our algorithm works in:
+
+docs/
+
+Return structured route results including:
+
+Ordered list of stops,
+
+Bus lines involved,
+
+Transfer points,
+
+Summary metrics (distance, transfers, time).
+
+4. Web Application Architecture (Next.js + Vercel)
+
+Design a production-ready web application using:
+
+Framework: Next.js (latest stable version)
+
+Deployment: Vercel
+
+Backend:
+
+API routes for routing computation,
+
+Database access layer (Prisma).
+
+Frontend:
+
+Interactive map
+
+UI components for:
+
+Current location detection,
+
+Start stop selection,
+
+Destination stop selection,
+
+Displaying top 3 route options.
+
+State Management:
+
+Client-side state for user inputs and selected routes.
+
+Performance:
+
+Efficient data fetching,
+
+5. User Experience and Interface Requirements
+
+The application must be:
+
+Fully mobile-friendly and responsive.
+
+Designed with modern UI/UX principles:
+
+Clean, minimal, accessible design,
+
+High-contrast, readable map markers,
+
+Intuitive route comparison UI.
+
+Map behavior:
+
+Display all bus stops by default,
+
+Markers must be clearly visible (not tiny dots),
+
+Highlight selected start and destination stops,
+
+Render computed routes visually on the map.
+
+User flow:
+
+Prompt the user to allow location access.
+
+Display nearby stops based on geolocation.
+
+Let the user select start and destination stops.
+
+Display top 3 routing options with visual comparison.
+
+6. Output Expectations
+
+You must produce in : 
+docs/
+
+High-level architecture diagram (described textually).
+Database schema analysis report.
+Routing algorithm design and pseudocode.
+
+
+
+Next.js project structure:
+
+Folder layout,
+
+API routes,
+
+Service layers.
+
+Example code snippets:
+
+Database connection,
+
+Graph construction,
+
+Route-finding logic,
+
+Frontend map rendering.
+
+Deployment plan for Vercel:
+
+Environment variables setup,
+
+Build configuration,
+
+Production readiness checklist.
+
+7. Engineering Constraints and Quality Standards
+
+Code must follow:
+
+Clean architecture principles,
+
+Separation of concerns,
+
+Production-level error handling and validation.
+
+Avoid anti-patterns:
+
+No monolithic route logic in frontend.
+
+No hard-coded secrets.
+
+Ensure:
+
+Security best practices for database access.
+
+Scalability considerations for future extension (e.g., adding real-time bus tracking).
+
+Provide documentation suitable for:
+
+README,
+
+Developer onboarding,
+
+API reference.
+
+8. Strategic Goal
+
+Your final output should enable a small engineering team to:
+
+Understand the bus transportation dataset,
+
+Implement an intelligent routing engine,
+
+Deploy a user-friendly, visually attractive route-planning web application to production.
+
+The resulting system should minimize resource waste, improve route efficiency, and form the foundation for future ecological and transport optimization features.

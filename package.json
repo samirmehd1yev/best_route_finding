@@ -1,0 +1,49 @@
+{
+  "name": "best_route_finding",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Baku Bus Route Planner - Find optimal public transport routes",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "inspect-db": "node scripts/inspect-db.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ismat-Samadov/best_route_finding.git"
+  },
+  "keywords": [
+    "baku",
+    "bus",
+    "route",
+    "planner",
+    "transport"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Ismat-Samadov/best_route_finding/issues"
+  },
+  "homepage": "https://github.com/Ismat-Samadov/best_route_finding#readme",
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
+    "dotenv": "^17.2.4",
+    "leaflet": "^1.9.4",
+    "next": "^16.1.6",
+    "postcss": "^8.5.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-leaflet": "^5.0.0",
+    "tailwindcss": "^4.1.18"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
