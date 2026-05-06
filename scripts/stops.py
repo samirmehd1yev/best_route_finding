@@ -1,229 +1,155 @@
 """
-Fetch all bus stop data from the Ayna Transport API and save to database
+Fetch all bus stop data from the Ayna Transport API and save to local SQLite.
 
 This script retrieves comprehensive information about all public transport stops
-in the Baku transportation system and stores them in the PostgreSQL database.
+in the Baku transportation system and stores them in the local SQLite database
+(default ``./data/ayna.sqlite``; override with ``SQLITE_DB_PATH``).
 
 API Endpoint: https://map-api.ayna.gov.az/api/stop/getAll
-Database Table: ayna.stops
+Database Table: stops
 """
 
-import requests
 import json
-import sys
 import logging
-from typing import Optional, List, Dict, Any
-from db_utils import execute_values, table_exists, get_row_count, truncate_table, test_connection
+import sys
+from typing import Any, Dict, List, Optional
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+import requests
+
+from db_utils import (
+    close_connection,
+    execute_values,
+    get_row_count,
+    parse_coordinate,
+    table_exists,
+    test_connection,
+    transaction,
+    truncate_table,
 )
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# API Configuration
 API_BASE_URL = "https://map-api.ayna.gov.az/api"
 STOPS_ENDPOINT = f"{API_BASE_URL}/stop/getAll"
 
 
-def parse_coordinate(coord_str: str) -> Optional[float]:
-    """
-    Parse coordinate string from Ayna API that uses commas/periods as separators.
-
-    Geographic coordinates (latitude/longitude) in the format '50,206,297' represent
-    50.206297 degrees. The format uses comma as both thousands and fractional separator.
-
-    Examples:
-        '50,206,297' -> 50.206297 (longitude)
-        '40,43885' -> 40.43885 (latitude)
-        '49.961721' -> 49.961721 (longitude)
-
-    Args:
-        coord_str: Coordinate string from API
-
-    Returns:
-        Float coordinate value
-    """
-    if not coord_str:
-        return None
-
-    coord_str = str(coord_str).strip()
-
-    # Remove all separators (commas and periods)
-    digits_only = coord_str.replace(',', '').replace('.', '')
-
-    # For geographic coordinates, we expect 2-3 digits before decimal
-    # Baku coordinates: lat ~40.x, lon ~49-50.x
-    # Insert decimal point after 2nd digit
-    if len(digits_only) > 2:
-        coord_str = digits_only[:2] + '.' + digits_only[2:]
-    else:
-        coord_str = digits_only
-
-    try:
-        return float(coord_str)
-    except ValueError:
-        logger.warning(f"Could not parse coordinate: {coord_str}")
-        return None
-
-
 def fetch_stops() -> Optional[List[Dict[str, Any]]]:
-    """
-    Fetch all stops from the API
-
-    Returns:
-        List of stop dictionaries if successful, None otherwise
-    """
     try:
         logger.info("Fetching stops data from API...")
-        logger.info(f"URL: {STOPS_ENDPOINT}")
+        logger.info("URL: %s", STOPS_ENDPOINT)
 
         response = requests.get(STOPS_ENDPOINT, timeout=30)
         response.raise_for_status()
 
         data = response.json()
-
         if isinstance(data, list):
-            logger.info(f"✓ Successfully fetched {len(data)} stops")
+            logger.info("✓ Successfully fetched %d stops", len(data))
             return data
-        else:
-            logger.error("Unexpected response format (expected list)")
-            return None
+        logger.error("Unexpected response format (expected list)")
+        return None
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"✗ Network error: {e}")
+    except requests.exceptions.RequestException as exc:
+        logger.error("✗ Network error: %s", exc)
         return None
-    except json.JSONDecodeError as e:
-        logger.error(f"✗ JSON decode error: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"✗ Unexpected error: {e}")
+    except json.JSONDecodeError as exc:
+        logger.error("✗ JSON decode error: %s", exc)
         return None
 
 
 def save_stops_to_db(stops: List[Dict[str, Any]]) -> bool:
-    """
-    Save stops data to the database (replaces all existing data)
+    """Replace the entire ``stops`` table atomically."""
+    if not table_exists("stops"):
+        logger.error("Table 'stops' does not exist. Run migrations first.")
+        return False
 
-    Args:
-        stops: List of stop dictionaries
-
-    Returns:
-        True if successful, False otherwise
-    """
     try:
-        # Check if table exists
-        if not table_exists('stops'):
-            logger.error("Table 'ayna.stops' does not exist. Run migrations first.")
-            return False
+        # Single transaction: truncate + insert. If any row fails to bind, the
+        # whole replacement rolls back and the database is left in its prior state.
+        with transaction():
+            logger.info("Truncating table stops (removing old data)...")
+            truncate_table("stops")
 
-        # Always truncate before inserting fresh data
-        logger.info("Truncating table ayna.stops (removing old data)...")
-        truncate_table('stops')
+            logger.info("Preparing data for database insert...")
+            data_tuples = []
+            for stop in stops:
+                longitude = parse_coordinate(stop.get("longitude"))
+                latitude = parse_coordinate(stop.get("latitude"))
+                data_tuples.append(
+                    (
+                        stop["id"],
+                        longitude,
+                        latitude,
+                        1 if stop.get("isTransportHub", False) else 0,
+                    )
+                )
 
-        # Prepare data for bulk insert
-        logger.info("Preparing data for database insert...")
+            logger.info("Inserting %d stops into database...", len(data_tuples))
+            query = """
+                INSERT INTO stops (id, longitude, latitude, is_transport_hub)
+                VALUES (?, ?, ?, ?)
+            """
+            rows_affected = execute_values(query, data_tuples)
+            logger.info("✓ Successfully saved %d stops to database", rows_affected)
 
-        data_tuples = []
-        for stop in stops:
-            # Convert coordinates using helper function
-            longitude = parse_coordinate(stop.get('longitude'))
-            latitude = parse_coordinate(stop.get('latitude'))
-
-            data_tuples.append((
-                stop['id'],
-                longitude,
-                latitude,
-                stop.get('isTransportHub', False)
-            ))
-
-        # Bulk insert using execute_values (no conflict handling needed since table is truncated)
-        logger.info(f"Inserting {len(data_tuples)} stops into database...")
-
-        query = """
-            INSERT INTO ayna.stops (id, longitude, latitude, is_transport_hub)
-            VALUES %s
-        """
-
-        rows_affected = execute_values(query, data_tuples, page_size=1000)
-
-        logger.info(f"✓ Successfully saved {rows_affected} stops to database")
-
-        # Verify
-        total_rows = get_row_count('stops')
-        logger.info(f"Total stops in database: {total_rows}")
-
+        total_rows = get_row_count("stops")
+        logger.info("Total stops in database: %s", total_rows)
         return True
 
-    except Exception as e:
-        logger.error(f"✗ Error saving stops to database: {e}")
+    except Exception as exc:
+        logger.error("✗ Error saving stops to database: %s", exc)
         return False
 
 
 def get_statistics(stops: List[Dict[str, Any]]) -> None:
-    """
-    Display statistics about the stops data
-
-    Args:
-        stops: List of stop dictionaries
-    """
     logger.info("=" * 60)
     logger.info("STOPS DATA STATISTICS")
     logger.info("=" * 60)
 
     total = len(stops)
-    transport_hubs = sum(1 for s in stops if s.get('isTransportHub'))
+    transport_hubs = sum(1 for s in stops if s.get("isTransportHub"))
+    logger.info("Total stops: %d", total)
+    logger.info("Transport hubs: %d", transport_hubs)
+    logger.info("Regular stops: %d", total - transport_hubs)
 
-    logger.info(f"Total stops: {total}")
-    logger.info(f"Transport hubs: {transport_hubs}")
-    logger.info(f"Regular stops: {total - transport_hubs}")
-
-    # Check for coordinates
-    with_coords = sum(
-        1 for s in stops
-        if s.get('longitude') and s.get('latitude')
-    )
-    logger.info(f"Stops with coordinates: {with_coords} ({with_coords/total*100:.1f}%)")
-
+    with_coords = sum(1 for s in stops if s.get("longitude") and s.get("latitude"))
+    logger.info("Stops with coordinates: %d (%.1f%%)", with_coords, with_coords / total * 100)
     logger.info("=" * 60)
 
 
-def main():
-    """Main execution function"""
+def main() -> int:
     logger.info("=" * 60)
     logger.info("BAKU BUS STOPS DATA FETCHER")
     logger.info("=" * 60)
 
-    # Test database connection
     logger.info("\nTesting database connection...")
     if not test_connection():
         logger.error("✗ Database connection failed!")
-        logger.info("Tip: Check your DATABASE_URL in .env file")
+        logger.info("Tip: ensure the SQLite file exists. Run `python scripts/run_migrations.py` first.")
         return 1
 
-    # Fetch stops from API
     stops = fetch_stops()
-
     if not stops:
         logger.error("✗ Failed to fetch stops data")
+        close_connection()
         return 1
 
-    # Display statistics
     get_statistics(stops)
 
-    # Save to database
     logger.info("\nSaving stops to database (will replace existing data)...")
-    if save_stops_to_db(stops):
+    success = save_stops_to_db(stops)
+    close_connection()
+
+    if success:
         logger.info("\n" + "=" * 60)
         logger.info("✓ ALL OPERATIONS COMPLETED SUCCESSFULLY!")
         logger.info("=" * 60)
         return 0
-    else:
-        logger.error("✗ Failed to save stops to database")
-        logger.info("\nTip: Make sure you've run migrations first:")
-        logger.info("  python scripts/run_migrations.py")
-        return 1
+
+    logger.error("✗ Failed to save stops to database")
+    logger.info("\nTip: Make sure you've run migrations first:")
+    logger.info("  python scripts/run_migrations.py")
+    return 1
 
 
 if __name__ == "__main__":

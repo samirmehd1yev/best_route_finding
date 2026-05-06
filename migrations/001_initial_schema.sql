@@ -1,191 +1,179 @@
--- Initial Database Schema for Baku Bus Route Dashboard
--- Schema: ayna
+-- Initial Database Schema for Baku Bus Route Dashboard (SQLite)
 -- Description: Complete schema for bus routes, stops, and geographic data
+--
+-- Notes on the SQLite port:
+--   * SQLite has no schemas — tables live in the default namespace.
+--   * Postgres `DECIMAL(10,7)` -> `REAL` (53-bit double, ample for 7-digit coords).
+--   * `BOOLEAN` -> `INTEGER` storing 0/1; better-sqlite3 hands these back as numbers
+--     and the JS layer coerces with `!!`.
+--   * `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` -> `TEXT DEFAULT (strftime(...))` so
+--     timestamps round-trip as unambiguous ISO-8601 UTC strings.
+--   * Postgres `SERIAL` -> `INTEGER PRIMARY KEY AUTOINCREMENT`.
+--   * `CREATE OR REPLACE VIEW` -> `DROP VIEW IF EXISTS` + `CREATE VIEW`.
+--   * `update_updated_at` triggers were dropped — no caller reads `updated_at`.
 
--- Create schema if not exists
-CREATE SCHEMA IF NOT EXISTS ayna;
-
--- Set search path
-SET search_path TO ayna, public;
+PRAGMA foreign_keys = ON;
 
 -- ============================================================================
 -- REFERENCE TABLES (Lookup/Dictionary Tables)
 -- ============================================================================
 
--- Payment Types Table
-CREATE TABLE IF NOT EXISTS ayna.payment_types (
+-- Payment Types -- Payment methods for bus routes (Card/Cash)
+CREATE TABLE IF NOT EXISTS payment_types (
     id INTEGER PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
+    name TEXT NOT NULL,
     description TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    deactived_date TIMESTAMP,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    deactived_date TEXT,
     priority INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+CREATE INDEX IF NOT EXISTS idx_payment_types_active ON payment_types(is_active);
 
-CREATE INDEX idx_payment_types_active ON ayna.payment_types(is_active);
-COMMENT ON TABLE ayna.payment_types IS 'Payment methods for bus routes (Card/Cash)';
-
--- Regions Table
-CREATE TABLE IF NOT EXISTS ayna.regions (
+-- Regions -- Geographic regions (e.g., Baku)
+CREATE TABLE IF NOT EXISTS regions (
     id INTEGER PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
+    name TEXT NOT NULL,
     description TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    deactived_date TIMESTAMP,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    deactived_date TEXT,
     priority INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+CREATE INDEX IF NOT EXISTS idx_regions_active ON regions(is_active);
 
-CREATE INDEX idx_regions_active ON ayna.regions(is_active);
-COMMENT ON TABLE ayna.regions IS 'Geographic regions (e.g., Baku)';
-
--- Working Zone Types Table
-CREATE TABLE IF NOT EXISTS ayna.working_zone_types (
+-- Working Zone Types -- Zone types (Urban, Suburban, etc.)
+CREATE TABLE IF NOT EXISTS working_zone_types (
     id INTEGER PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
+    name TEXT NOT NULL,
     description TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    deactived_date TIMESTAMP,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    deactived_date TEXT,
     priority INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
-
-CREATE INDEX idx_working_zone_types_active ON ayna.working_zone_types(is_active);
-COMMENT ON TABLE ayna.working_zone_types IS 'Zone types (Urban, Suburban, etc.)';
+CREATE INDEX IF NOT EXISTS idx_working_zone_types_active ON working_zone_types(is_active);
 
 -- ============================================================================
 -- CORE DATA TABLES
 -- ============================================================================
 
--- Stops Table (from stops.json)
-CREATE TABLE IF NOT EXISTS ayna.stops (
+-- All bus stops with geographic coordinates (from /api/stop/getAll)
+CREATE TABLE IF NOT EXISTS stops (
     id INTEGER PRIMARY KEY,
-    longitude DECIMAL(10, 7) NOT NULL,
-    latitude DECIMAL(10, 7) NOT NULL,
-    is_transport_hub BOOLEAN NOT NULL DEFAULT false,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    longitude REAL NOT NULL,
+    latitude REAL NOT NULL,
+    is_transport_hub INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+CREATE INDEX IF NOT EXISTS idx_stops_coordinates ON stops(latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_stops_transport_hub ON stops(is_transport_hub);
 
-CREATE INDEX idx_stops_coordinates ON ayna.stops(latitude, longitude);
-CREATE INDEX idx_stops_transport_hub ON ayna.stops(is_transport_hub);
-COMMENT ON TABLE ayna.stops IS 'All bus stops with geographic coordinates';
-
--- Stop Details Table (from busDetails stops.stop nested data)
-CREATE TABLE IF NOT EXISTS ayna.stop_details (
+-- Detailed stop information including names and codes (from busDetails stops.stop nested data)
+CREATE TABLE IF NOT EXISTS stop_details (
     id INTEGER PRIMARY KEY,
-    code VARCHAR(50),
-    name VARCHAR(255) NOT NULL,
-    name_monitor VARCHAR(255),
-    utm_coord_x VARCHAR(50),
-    utm_coord_y VARCHAR(50),
-    longitude DECIMAL(10, 7) NOT NULL,
-    latitude DECIMAL(10, 7) NOT NULL,
-    is_transport_hub BOOLEAN NOT NULL DEFAULT false,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    code TEXT,
+    name TEXT NOT NULL,
+    name_monitor TEXT,
+    utm_coord_x TEXT,
+    utm_coord_y TEXT,
+    longitude REAL NOT NULL,
+    latitude REAL NOT NULL,
+    is_transport_hub INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+CREATE INDEX IF NOT EXISTS idx_stop_details_code ON stop_details(code);
+CREATE INDEX IF NOT EXISTS idx_stop_details_name ON stop_details(name);
+CREATE INDEX IF NOT EXISTS idx_stop_details_coordinates ON stop_details(latitude, longitude);
 
-CREATE INDEX idx_stop_details_code ON ayna.stop_details(code);
-CREATE INDEX idx_stop_details_name ON ayna.stop_details(name);
-CREATE INDEX idx_stop_details_coordinates ON ayna.stop_details(latitude, longitude);
-COMMENT ON TABLE ayna.stop_details IS 'Detailed stop information including names and codes';
-
--- Buses Table (Main bus routes)
-CREATE TABLE IF NOT EXISTS ayna.buses (
+-- Bus routes with operator and fare information
+CREATE TABLE IF NOT EXISTS buses (
     id INTEGER PRIMARY KEY,
-    carrier VARCHAR(255) NOT NULL,
-    number VARCHAR(50) NOT NULL,
-    first_point VARCHAR(255) NOT NULL,
-    last_point VARCHAR(255) NOT NULL,
-    route_length DECIMAL(10, 2),
-    payment_type_id INTEGER REFERENCES ayna.payment_types(id),
-    card_payment_date TIMESTAMP,
+    carrier TEXT NOT NULL,
+    number TEXT NOT NULL,
+    first_point TEXT NOT NULL,
+    last_point TEXT NOT NULL,
+    route_length REAL,
+    payment_type_id INTEGER REFERENCES payment_types(id),
+    card_payment_date TEXT,
     tariff INTEGER NOT NULL,
-    tariff_str VARCHAR(50),
-    region_id INTEGER REFERENCES ayna.regions(id),
-    working_zone_type_id INTEGER REFERENCES ayna.working_zone_types(id),
+    tariff_str TEXT,
+    region_id INTEGER REFERENCES regions(id),
+    working_zone_type_id INTEGER REFERENCES working_zone_types(id),
     duration_minuts INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+CREATE INDEX IF NOT EXISTS idx_buses_number ON buses(number);
+CREATE INDEX IF NOT EXISTS idx_buses_carrier ON buses(carrier);
+CREATE INDEX IF NOT EXISTS idx_buses_payment_type ON buses(payment_type_id);
+CREATE INDEX IF NOT EXISTS idx_buses_region ON buses(region_id);
+CREATE INDEX IF NOT EXISTS idx_buses_zone_type ON buses(working_zone_type_id);
 
-CREATE INDEX idx_buses_number ON ayna.buses(number);
-CREATE INDEX idx_buses_carrier ON ayna.buses(carrier);
-CREATE INDEX idx_buses_payment_type ON ayna.buses(payment_type_id);
-CREATE INDEX idx_buses_region ON ayna.buses(region_id);
-CREATE INDEX idx_buses_zone_type ON ayna.buses(working_zone_type_id);
-COMMENT ON TABLE ayna.buses IS 'Bus routes with operator and fare information';
-
--- Bus Stops Junction Table (links buses to stops with sequence)
-CREATE TABLE IF NOT EXISTS ayna.bus_stops (
-    id SERIAL PRIMARY KEY,
-    bus_stop_id INTEGER NOT NULL,  -- Original ID from API
-    bus_id INTEGER NOT NULL REFERENCES ayna.buses(id) ON DELETE CASCADE,
-    stop_id INTEGER NOT NULL REFERENCES ayna.stop_details(id),
-    stop_code VARCHAR(50),
-    stop_name VARCHAR(255) NOT NULL,
-    total_distance DECIMAL(10, 2),
-    intermediate_distance DECIMAL(10, 2),
-    direction_type_id INTEGER NOT NULL,  -- 1=outbound, 2=inbound
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+-- Junction table linking buses to stops with sequence and distance
+CREATE TABLE IF NOT EXISTS bus_stops (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bus_stop_id INTEGER NOT NULL,         -- Original ID from API
+    bus_id INTEGER NOT NULL REFERENCES buses(id) ON DELETE CASCADE,
+    stop_id INTEGER NOT NULL REFERENCES stop_details(id),
+    stop_code TEXT,
+    stop_name TEXT NOT NULL,
+    total_distance REAL,
+    intermediate_distance REAL,
+    direction_type_id INTEGER NOT NULL,   -- 1=outbound, 2=inbound
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     UNIQUE(bus_id, bus_stop_id, direction_type_id)
 );
+CREATE INDEX IF NOT EXISTS idx_bus_stops_bus ON bus_stops(bus_id);
+CREATE INDEX IF NOT EXISTS idx_bus_stops_stop ON bus_stops(stop_id);
+CREATE INDEX IF NOT EXISTS idx_bus_stops_direction ON bus_stops(direction_type_id);
+CREATE INDEX IF NOT EXISTS idx_bus_stops_bus_direction ON bus_stops(bus_id, direction_type_id);
 
-CREATE INDEX idx_bus_stops_bus ON ayna.bus_stops(bus_id);
-CREATE INDEX idx_bus_stops_stop ON ayna.bus_stops(stop_id);
-CREATE INDEX idx_bus_stops_direction ON ayna.bus_stops(direction_type_id);
-CREATE INDEX idx_bus_stops_bus_direction ON ayna.bus_stops(bus_id, direction_type_id);
-COMMENT ON TABLE ayna.bus_stops IS 'Junction table linking buses to stops with sequence and distance';
-
--- Routes Table (Direction-specific route information)
-CREATE TABLE IF NOT EXISTS ayna.routes (
+-- Route directions with metadata for each bus
+CREATE TABLE IF NOT EXISTS routes (
     id INTEGER PRIMARY KEY,
-    code VARCHAR(50),
-    customer_name VARCHAR(255),
-    type VARCHAR(50),
-    name VARCHAR(255),
-    destination VARCHAR(255),
-    variant VARCHAR(50),
-    operator VARCHAR(255),
-    bus_id INTEGER NOT NULL REFERENCES ayna.buses(id) ON DELETE CASCADE,
-    direction_type_id INTEGER NOT NULL,  -- 1=outbound, 2=inbound
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    code TEXT,
+    customer_name TEXT,
+    type TEXT,
+    name TEXT,
+    destination TEXT,
+    variant TEXT,
+    operator TEXT,
+    bus_id INTEGER NOT NULL REFERENCES buses(id) ON DELETE CASCADE,
+    direction_type_id INTEGER NOT NULL,   -- 1=outbound, 2=inbound
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+CREATE INDEX IF NOT EXISTS idx_routes_bus ON routes(bus_id);
+CREATE INDEX IF NOT EXISTS idx_routes_direction ON routes(direction_type_id);
+CREATE INDEX IF NOT EXISTS idx_routes_bus_direction ON routes(bus_id, direction_type_id);
+CREATE INDEX IF NOT EXISTS idx_routes_code ON routes(code);
 
-CREATE INDEX idx_routes_bus ON ayna.routes(bus_id);
-CREATE INDEX idx_routes_direction ON ayna.routes(direction_type_id);
-CREATE INDEX idx_routes_bus_direction ON ayna.routes(bus_id, direction_type_id);
-CREATE INDEX idx_routes_code ON ayna.routes(code);
-COMMENT ON TABLE ayna.routes IS 'Route directions with metadata for each bus';
-
--- Route Coordinates Table (Flow coordinates for mapping)
-CREATE TABLE IF NOT EXISTS ayna.route_coordinates (
-    id SERIAL PRIMARY KEY,
-    route_id INTEGER NOT NULL REFERENCES ayna.routes(id) ON DELETE CASCADE,
-    latitude DECIMAL(10, 7) NOT NULL,
-    longitude DECIMAL(10, 7) NOT NULL,
-    sequence_order INTEGER NOT NULL,  -- Order of coordinates along the route
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Geographic coordinates defining the route path for visualization
+CREATE TABLE IF NOT EXISTS route_coordinates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    route_id INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    sequence_order INTEGER NOT NULL,
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
-
-CREATE INDEX idx_route_coordinates_route ON ayna.route_coordinates(route_id);
-CREATE INDEX idx_route_coordinates_sequence ON ayna.route_coordinates(route_id, sequence_order);
-CREATE INDEX idx_route_coordinates_location ON ayna.route_coordinates(latitude, longitude);
-COMMENT ON TABLE ayna.route_coordinates IS 'Geographic coordinates defining the route path for visualization';
+CREATE INDEX IF NOT EXISTS idx_route_coordinates_route ON route_coordinates(route_id);
+CREATE INDEX IF NOT EXISTS idx_route_coordinates_sequence ON route_coordinates(route_id, sequence_order);
+CREATE INDEX IF NOT EXISTS idx_route_coordinates_location ON route_coordinates(latitude, longitude);
 
 -- ============================================================================
--- VIEWS FOR EASY DATA ACCESS
+-- VIEWS
 -- ============================================================================
 
--- Complete Bus Information View
-CREATE OR REPLACE VIEW ayna.v_buses_complete AS
+DROP VIEW IF EXISTS v_buses_complete;
+CREATE VIEW v_buses_complete AS
 SELECT
     b.id,
     b.number,
@@ -197,27 +185,25 @@ SELECT
     b.tariff,
     b.tariff_str,
     b.card_payment_date,
-    pt.name as payment_type,
-    r.name as region,
-    wzt.name as working_zone_type,
+    pt.name AS payment_type,
+    r.name AS region,
+    wzt.name AS working_zone_type,
     b.created_at,
     b.updated_at
-FROM ayna.buses b
-LEFT JOIN ayna.payment_types pt ON b.payment_type_id = pt.id
-LEFT JOIN ayna.regions r ON b.region_id = r.id
-LEFT JOIN ayna.working_zone_types wzt ON b.working_zone_type_id = wzt.id;
+FROM buses b
+LEFT JOIN payment_types pt ON b.payment_type_id = pt.id
+LEFT JOIN regions r ON b.region_id = r.id
+LEFT JOIN working_zone_types wzt ON b.working_zone_type_id = wzt.id;
 
-COMMENT ON VIEW ayna.v_buses_complete IS 'Complete bus information with joined reference data';
-
--- Bus Stops with Details View
-CREATE OR REPLACE VIEW ayna.v_bus_stops_details AS
+DROP VIEW IF EXISTS v_bus_stops_details;
+CREATE VIEW v_bus_stops_details AS
 SELECT
     bs.id,
     bs.bus_id,
-    b.number as bus_number,
+    b.number AS bus_number,
     bs.stop_id,
-    sd.name as stop_name,
-    sd.code as stop_code,
+    sd.name AS stop_name,
+    sd.code AS stop_code,
     sd.latitude,
     sd.longitude,
     bs.total_distance,
@@ -227,59 +213,8 @@ SELECT
         WHEN bs.direction_type_id = 1 THEN 'Outbound'
         WHEN bs.direction_type_id = 2 THEN 'Inbound'
         ELSE 'Unknown'
-    END as direction_name,
+    END AS direction_name,
     sd.is_transport_hub
-FROM ayna.bus_stops bs
-JOIN ayna.buses b ON bs.bus_id = b.id
-JOIN ayna.stop_details sd ON bs.stop_id = sd.id;
-
-COMMENT ON VIEW ayna.v_bus_stops_details IS 'Bus stops with complete details and human-readable direction';
-
--- ============================================================================
--- UTILITY FUNCTIONS
--- ============================================================================
-
--- Function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION ayna.update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Apply update triggers to all tables
-CREATE TRIGGER update_payment_types_updated_at BEFORE UPDATE ON ayna.payment_types
-    FOR EACH ROW EXECUTE FUNCTION ayna.update_updated_at_column();
-
-CREATE TRIGGER update_regions_updated_at BEFORE UPDATE ON ayna.regions
-    FOR EACH ROW EXECUTE FUNCTION ayna.update_updated_at_column();
-
-CREATE TRIGGER update_working_zone_types_updated_at BEFORE UPDATE ON ayna.working_zone_types
-    FOR EACH ROW EXECUTE FUNCTION ayna.update_updated_at_column();
-
-CREATE TRIGGER update_stops_updated_at BEFORE UPDATE ON ayna.stops
-    FOR EACH ROW EXECUTE FUNCTION ayna.update_updated_at_column();
-
-CREATE TRIGGER update_stop_details_updated_at BEFORE UPDATE ON ayna.stop_details
-    FOR EACH ROW EXECUTE FUNCTION ayna.update_updated_at_column();
-
-CREATE TRIGGER update_buses_updated_at BEFORE UPDATE ON ayna.buses
-    FOR EACH ROW EXECUTE FUNCTION ayna.update_updated_at_column();
-
-CREATE TRIGGER update_bus_stops_updated_at BEFORE UPDATE ON ayna.bus_stops
-    FOR EACH ROW EXECUTE FUNCTION ayna.update_updated_at_column();
-
-CREATE TRIGGER update_routes_updated_at BEFORE UPDATE ON ayna.routes
-    FOR EACH ROW EXECUTE FUNCTION ayna.update_updated_at_column();
-
--- ============================================================================
--- GRANTS (Adjust as needed for your security requirements)
--- ============================================================================
-
--- Grant usage on schema
--- GRANT USAGE ON SCHEMA ayna TO your_app_user;
--- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA ayna TO your_app_user;
--- GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ayna TO your_app_user;
-
-COMMENT ON SCHEMA ayna IS 'Baku bus route dashboard - Complete transportation network data';
+FROM bus_stops bs
+JOIN buses b ON bs.bus_id = b.id
+JOIN stop_details sd ON bs.stop_id = sd.id;

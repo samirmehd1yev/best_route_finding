@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@neondatabase/serverless"],
+  // better-sqlite3 is a native module — keep it out of the webpack bundle.
+  serverExternalPackages: ["better-sqlite3"],
 };
 
 export default nextConfig;

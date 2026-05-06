@@ -6,6 +6,7 @@ import StopSearch from "@/components/StopSearch";
 import JourneyCard from "@/components/JourneyCard";
 import LocationButton from "@/components/LocationButton";
 import type { StopDetail, RouteResult } from "@/lib/types";
+import { haversine } from "@/lib/geo";
 
 const MapView = dynamic(() => import("@/components/Map"), { ssr: false });
 
@@ -95,9 +96,9 @@ export default function Home() {
         let nearest = stops[0];
         let minDist = Infinity;
         for (const stop of stops) {
-          const d = Math.sqrt(
-            Math.pow(stop.latitude - lat, 2) + Math.pow(stop.longitude - lng, 2)
-          );
+          // Use great-circle distance so the result is correct at any latitude.
+          // Plain Euclidean lat/lng skews badly far from the equator.
+          const d = haversine(lat, lng, stop.latitude, stop.longitude);
           if (d < minDist) {
             minDist = d;
             nearest = stop;

@@ -9,11 +9,11 @@
 │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐│
 │  │  Map Layer   │  │  UI Controls │  │  State Management      ││
 │  │  (Leaflet)   │  │  (React 19)  │  │  (React useState)      ││
-│  │              │  │              │  │                          ││
-│  │ - Stop dots  │  │ - StopSearch │  │ - Selected stops        ││
-│  │ - Route lines│  │ - JourneyCard│  │ - Route result          ││
-│  │ - Walk paths │  │ - LocationBtn│  │ - User location         ││
-│  │ - Markers    │  │              │  │ - Mobile view toggle    ││
+│  │              │  │              │  │                        ││
+│  │ - Stop dots  │  │ - StopSearch │  │ - Selected stops       ││
+│  │ - Route lines│  │ - JourneyCard│  │ - Route result         ││
+│  │ - Walk paths │  │ - LocationBtn│  │ - User location        ││
+│  │ - Markers    │  │              │  │ - Mobile view toggle   ││
 │  └──────┬───────┘  └──────┬───────┘  └────────────┬───────────┘│
 │         └──────────────────┴──────────────────────┘             │
 │                            │ HTTP                               │
@@ -22,35 +22,37 @@
 ┌────────────────────────────┼────────────────────────────────────┐
 │                     NEXT.JS 16 SERVER                           │
 │                            │                                    │
-│  ┌─────────────────────────┴───────────────────────────────┐   │
-│  │                   API Routes (/api)                      │   │
-│  │                                                          │   │
-│  │  GET  /api/stops              - All stops with coords    │   │
-│  │  GET  /api/stops/nearby       - Stops near a location    │   │
-│  │  GET  /api/buses              - All bus lines             │   │
-│  │  POST /api/routes/find        - Compute optimal route    │   │
-│  │  GET  /api/routes/geometry    - Route GPS polyline       │   │
-│  └─────────────────────────┬───────────────────────────────┘   │
+│  ┌─────────────────────────┴───────────────────────────────┐    │
+│  │                   API Routes (/api)                     │    │
+│  │                                                         │    │
+│  │  GET  /api/stops              - All stops with coords   │    │
+│  │  GET  /api/stops/nearby       - Stops near a location   │    │
+│  │  GET  /api/buses              - All bus lines           │    │
+│  │  POST /api/routes/find        - Compute optimal route   │    │
+│  │  GET  /api/routes/geometry    - Route GPS polyline      │    │
+│  │  GET  /api/data-status        - Last ingest timestamp   │    │
+│  └─────────────────────────┬───────────────────────────────┘    │
 │                            │                                    │
-│  ┌─────────────────────────┴───────────────────────────────┐   │
-│  │                   Library Layer (src/lib/)               │   │
-│  │                                                          │   │
-│  │  db.ts         - Neon query functions (tagged templates) │   │
-│  │  graph.ts      - TransitGraph class (build + cache)      │   │
-│  │  routing.ts    - Dijkstra + Yen's k-shortest paths       │   │
-│  │  geo.ts        - Haversine distance, nearby stop lookup   │   │
-│  │  types.ts      - TypeScript interfaces and constants      │   │
-│  └─────────────────────────┬───────────────────────────────┘   │
-│                            │ SQL (tagged templates)             │
+│  ┌─────────────────────────┴───────────────────────────────┐    │
+│  │                   Library Layer (src/lib/)              │    │
+│  │                                                         │    │
+│  │  db.ts       - better-sqlite3 query functions           │    │
+│  │  graph.ts    - TransitGraph class (build + cache)       │    │
+│  │  routing.ts  - Dijkstra + Yen's k-shortest paths        │    │
+│  │  geo.ts      - Haversine distance, nearby stop lookup   │    │
+│  │  types.ts    - TypeScript interfaces and constants      │    │
+│  └─────────────────────────┬───────────────────────────────┘    │
+│                            │ prepared statements                │
 └────────────────────────────┼────────────────────────────────────┘
                              │
 ┌────────────────────────────┼────────────────────────────────────┐
-│              NEON POSTGRESQL (Cloud)                             │
+│                       SQLite (file)                             │
 │                                                                 │
-│  Schema: ayna                                                   │
+│  Path:   ./data/ayna.sqlite (override: SQLITE_DB_PATH)          │
 │  Tables: buses, bus_stops, stop_details, routes,                │
-│          route_coordinates, stops, regions,                      │
-│          payment_types, working_zone_types                       │
+│          route_coordinates, stops, regions,                     │
+│          payment_types, working_zone_types                      │
+│  Views:  v_buses_complete, v_bus_stops_details                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -64,60 +66,63 @@
 | Styling | Tailwind CSS + custom CSS | 4 |
 | CSS Build | PostCSS with `@tailwindcss/postcss` | 8 |
 | Maps | Leaflet + react-leaflet | 1.9 / 5.0 |
-| Database | PostgreSQL via Neon serverless driver | - |
-| Deployment | Vercel | - |
+| Database driver (Node) | `better-sqlite3` | 11.x |
+| Database driver (Python) | stdlib `sqlite3` | — |
+| Deployment | any Node 20+ host | — |
 
 ## Project Structure
 
 ```
 best_route_finding/
+├── data/                                 # SQLite file (committed alongside source)
+│   └── ayna.sqlite
 ├── docs/
-│   ├── architecture.md               # This file
-│   ├── routing-algorithm.md           # Algorithm design and pseudocode
-│   ├── deployment.md                  # Vercel deployment guide
+│   ├── architecture.md                   # This file
+│   ├── routing-algorithm.md              # Algorithm design and pseudocode
+│   ├── deployment.md                     # Deployment guide
+│   ├── scraping/                         # Scraper module docs
 │   └── database/
-│       ├── schema-analysis.md         # Database schema documentation
-│       └── data-dictionary.md         # Field semantics and domain model
+│       ├── schema-analysis.md            # Database schema documentation
+│       └── data-dictionary.md            # Field semantics and domain model
 ├── prompts/
-│   └── development.txt                # Development context
+│   └── development.txt                   # Development context
 ├── scripts/
-│   ├── check-schemas.js               # Schema validation
-│   ├── inspect-db.js                  # Database schema inspection
-│   └── inspect-data.js               # Data sampling script
+│   ├── inspect-db.js                     # SQLite schema inspection (Node)
+│   ├── inspect-data.js                   # Quick row counts + samples (Node)
+│   ├── run_migrations.py                 # Apply migrations (Python)
+│   ├── stops.py                          # Stops scraper (Python)
+│   ├── busDetails.py                     # Bus details scraper (Python)
+│   └── db_utils.py                       # Shared SQLite helpers (Python)
+├── migrations/
+│   └── 001_initial_schema.sql            # SQLite schema
 ├── src/
 │   ├── app/
-│   │   ├── layout.tsx                 # Root layout, viewport meta, Leaflet CSS
-│   │   ├── page.tsx                   # Main page (client component)
-│   │   ├── globals.css                # All styles: desktop, tablet, mobile, landscape
-│   │   ├── icon.svg                   # Favicon
+│   │   ├── layout.tsx                    # Root layout, viewport meta, Leaflet CSS
+│   │   ├── page.tsx                      # Main page (client component)
+│   │   ├── globals.css                   # All styles: desktop, tablet, mobile, landscape
+│   │   ├── icon.svg                      # Favicon
 │   │   └── api/
-│   │       ├── stops/
-│   │       │   ├── route.ts           # GET /api/stops
-│   │       │   └── nearby/
-│   │       │       └── route.ts       # GET /api/stops/nearby
-│   │       ├── buses/
-│   │       │   └── route.ts           # GET /api/buses
-│   │       └── routes/
-│   │           ├── find/
-│   │           │   └── route.ts       # POST /api/routes/find
-│   │           └── geometry/
-│   │               └── route.ts       # GET /api/routes/geometry
+│   │       ├── stops/route.ts            # GET /api/stops
+│   │       ├── stops/nearby/route.ts     # GET /api/stops/nearby
+│   │       ├── buses/route.ts            # GET /api/buses
+│   │       ├── routes/find/route.ts      # POST /api/routes/find
+│   │       ├── routes/geometry/route.ts  # GET /api/routes/geometry
+│   │       └── data-status/route.ts      # GET /api/data-status
 │   ├── lib/
-│   │   ├── db.ts                      # Neon SQL query functions
-│   │   ├── graph.ts                   # TransitGraph class
-│   │   ├── routing.ts                 # Dijkstra + Yen's + PriorityQueue
-│   │   ├── geo.ts                     # Haversine, findNearbyStops
-│   │   └── types.ts                   # Interfaces, constants
+│   │   ├── db.ts                         # SQLite query functions
+│   │   ├── graph.ts                      # TransitGraph class
+│   │   ├── routing.ts                    # Dijkstra + Yen's + PriorityQueue
+│   │   ├── geo.ts                        # Haversine, findNearbyStops
+│   │   └── types.ts                      # Interfaces, constants
 │   └── components/
-│       ├── Map.tsx                     # Leaflet map with route visualization
-│       ├── StopSearch.tsx             # Autocomplete stop search
-│       ├── JourneyCard.tsx            # Route timeline (bus + walk segments)
-│       └── LocationButton.tsx         # Browser geolocation button
-├── .env.example                       # Environment variable template
+│       ├── Map.tsx                       # Leaflet map with route visualization
+│       ├── StopSearch.tsx                # Autocomplete stop search
+│       ├── JourneyCard.tsx               # Route timeline (bus + walk segments)
+│       └── LocationButton.tsx            # Browser geolocation button
 ├── .gitignore
-├── next.config.ts                     # Next.js configuration
-├── postcss.config.mjs                 # PostCSS with Tailwind plugin
-├── tsconfig.json                      # TypeScript configuration
+├── next.config.ts                        # Next.js config (better-sqlite3 external)
+├── postcss.config.mjs                    # PostCSS with Tailwind plugin
+├── tsconfig.json                         # TypeScript configuration
 ├── package.json
 └── README.md
 ```
@@ -126,17 +131,22 @@ best_route_finding/
 
 ### 1. Database Layer (`src/lib/db.ts`)
 
-Standalone query functions using the Neon serverless driver (`@neondatabase/serverless`). Each function creates a `neon()` SQL tagged template client from `DATABASE_URL` and returns typed results.
+Thin query layer over `better-sqlite3`. The database connection is opened
+once (read-only, WAL mode, foreign keys ON) and cached at module level. The
+exported functions are `async` for ergonomic compatibility with existing
+callers — internally they run synchronous prepared statements.
 
 Key functions:
-- `queryStopDetails()` — all 3,444 stops with coordinates (parses varchar lat/lng to float)
-- `queryBuses()` — all 207 bus lines with metadata
-- `queryBusStops()` — all 11,702 bus-stop sequences ordered by bus, direction, position
+- `queryStopDetails()` — all stops with coordinates
+- `queryBuses()` — all bus lines with metadata
+- `queryBusStops()` — all bus-stop sequences ordered by bus, direction, position
 - `queryRouteCoordinates(routeId)` — GPS polyline for a specific route
 - `queryRoutes()` — all route variants
 - `queryRoutesByBusAndDirection(busId, directionTypeId)` — single route ID lookup
+- `getDataLastUpdated()` — `MAX(created_at)` from `buses`, returned as ISO-8601
 
-All queries use the hardcoded `ayna.` schema prefix with Neon tagged template literals (SQL injection safe).
+Query parameters use `?` placeholders bound by better-sqlite3 — SQL
+injection is impossible from this layer.
 
 ### 2. Graph Layer (`src/lib/graph.ts`)
 
@@ -145,14 +155,18 @@ The `TransitGraph` class builds and caches the bus network graph:
 - **Adjacency list:** `Map<stopId, GraphEdge[]>` — directed edges per stop
 - **Stop index:** `Map<stopId, StopDetail>` — stop metadata lookup
 - **Bus index:** `Map<busId, Bus>` — bus metadata lookup
-- **Build process:** Fetches all data from DB, constructs bus edges + walking edges
+- **Build process:** Loads all data from SQLite, constructs bus edges + walking edges
 - **Singleton:** `getGraph()` returns a cached instance (module-level variable)
+
+Walking-edge construction is guarded so an edge is only added when both
+endpoints are actually served by buses *and* `stopB` provides a route
+`stopA` doesn't.
 
 ### 3. Routing Layer (`src/lib/routing.ts`)
 
 Standalone functions for route computation:
 
-- `findRoutes(graph, source, target, mode, k)` — Yen's k-shortest paths (default k=3)
+- `findRoutes(graph, source, target, mode, k)` — Yen's k-shortest paths (default k=3, the API uses k=1 which short-circuits Yen's loop)
 - `dijkstraFull(graph, source, target, mode, excludedEdges?, excludedNodes?)` — full Dijkstra with path reconstruction
 - `reconstructRoute(graph, pathKeys, prevMap)` — builds `RouteResult` from path
 - `edgeCost(edge, isTransfer, mode)` — mode-specific cost function
@@ -170,30 +184,31 @@ Next.js App Router API routes:
 
 | Endpoint | Method | Input | Output |
 |----------|--------|-------|--------|
-| `/api/stops` | GET | — | `{ stops: StopDetail[] }` |
-| `/api/stops/nearby` | GET | `?lat=&lon=&radius=&limit=` | `{ stops: StopDetail[] }` |
+| `/api/stops` | GET | optional `?limit=&offset=` | `{ stops, total[, limit, offset] }` |
+| `/api/stops/nearby` | GET | `?lat=&lng=&radius=&limit=` | `{ stops: StopDetail[] }` |
 | `/api/buses` | GET | — | `{ buses: Bus[] }` |
 | `/api/routes/find` | POST | `{ fromStopId, toStopId }` | `{ from, to, route: RouteResult }` |
 | `/api/routes/geometry` | GET | `?busId=&direction=` | `{ routeId, coordinates }` |
+| `/api/data-status` | GET | — | `{ lastUpdated: string \| null }` |
 
 ### 6. Frontend Layer (`src/components/` + `src/app/page.tsx`)
 
 Client-side React components:
 
-- **`page.tsx`** — Main page, state management (selected stops, route, mobile view), `useIsMobile()` hook for responsive breakpoint detection at 768px
-- **`Map.tsx`** — Leaflet map (dynamically imported, no SSR). Shows all stops as CircleMarkers, route polylines (color-coded per segment, dashed for walking), start/end/transfer markers, user location
-- **`StopSearch.tsx`** — Text input with inline dropdown, filters stops by name/code, touch-friendly with onTouchEnd handlers
-- **`JourneyCard.tsx`** — Route timeline visualization with summary stats (distance, time, buses, transfers) and segment-by-segment breakdown
-- **`LocationButton.tsx`** — Browser geolocation API, finds nearest stop on success
+- **`page.tsx`** — Main page, state management (selected stops, route, mobile view), `useIsMobile()` hook for responsive breakpoint detection at 768 px. Nearest-stop lookup uses `haversine()` from `@/lib/geo` (great-circle distance).
+- **`Map.tsx`** — Leaflet map (dynamically imported, no SSR). Shows all stops as CircleMarkers, route polylines (color-coded per segment, dashed for walking), start/end/transfer markers, user location.
+- **`StopSearch.tsx`** — Text input with inline dropdown, filters stops by name/code, touch-friendly with `onTouchEnd` handlers.
+- **`JourneyCard.tsx`** — Route timeline visualization with summary stats (distance, time, buses, transfers) and segment-by-segment breakdown.
+- **`LocationButton.tsx`** — Browser geolocation API, finds nearest stop on success.
 
 ## Responsive Layout
 
 | Screen Size | Layout | Navigation |
 |-------------|--------|------------|
-| Desktop (>=1024px) | Side-by-side: 420px sidebar + map | Always visible |
-| Tablet (768-1023px) | Side-by-side: 360px sidebar + map | Always visible |
-| Mobile (<768px) | Full-screen tabs (Search / Map) | Bottom tab bar |
-| Small phone (<400px) | Compact spacing variant | Bottom tab bar |
+| Desktop (>=1024 px) | Side-by-side: 420 px sidebar + map | Always visible |
+| Tablet (768–1023 px) | Side-by-side: 360 px sidebar + map | Always visible |
+| Mobile (<768 px) | Full-screen tabs (Search / Map) | Bottom tab bar |
+| Small phone (<400 px) | Compact spacing variant | Bottom tab bar |
 | Landscape mobile | Compressed header, hidden subtitle | Bottom tab bar (horizontal) |
 
 Safe area insets (`env(safe-area-inset-*)`) supported for notched phones. Dynamic viewport height (`dvh`) used to handle mobile browser address bars.
@@ -213,54 +228,56 @@ Safe area insets (`env(safe-area-inset-*)`) supported for notched phones. Dynami
 10. Mobile: auto-switches to Map tab after route is found
 ```
 
-## Deployment (Vercel)
+## Deployment
 
 ```
 ┌─────────────────────────────────────┐
-│           Vercel Platform           │
+│           Node host (any)           │
 │                                     │
-│  ┌─────────────────────────────┐   │
-│  │   Edge Network (CDN)        │   │
-│  │   - Static assets (CSS/JS)  │   │
-│  │   - Pre-rendered pages      │   │
-│  └──────────┬──────────────────┘   │
-│             │                       │
-│  ┌──────────┴──────────────────┐   │
-│  │   Serverless Functions      │   │
-│  │   - API route handlers      │   │
-│  │   - Graph build + cache     │   │
-│  └──────────┬──────────────────┘   │
-│             │                       │
-└─────────────┼───────────────────────┘
-              │ HTTPS
-              │
-┌─────────────┴───────────────────────┐
-│     Neon PostgreSQL                 │
-│     - Serverless HTTP driver        │
-│     - Schema: ayna                  │
+│  ┌─────────────────────────────┐    │
+│  │   Next.js server            │    │
+│  │   - Static assets (CDN/CF)  │    │
+│  │   - API route handlers      │    │
+│  │   - Graph build + cache     │    │
+│  └──────────┬──────────────────┘    │
+│             │ better-sqlite3        │
+│             │ (read-only, WAL)      │
+│  ┌──────────┴──────────────────┐    │
+│  │   ./data/ayna.sqlite        │    │
+│  └─────────────────────────────┘    │
 └─────────────────────────────────────┘
 ```
+
+Refreshing data is a separate workflow: re-run `python scripts/stops.py`
+and `python scripts/busDetails.py`, commit/upload the new SQLite file,
+then redeploy. There is no live database connection from the running app
+to anything external.
 
 ## Environment Variables
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `DATABASE_URL` | Neon PostgreSQL connection string | `postgresql://user:pass@host/db?sslmode=require` |
-| `DATABASE_SCHEMA` | Schema name (read but queries use hardcoded `ayna.` prefix) | `AYNA` |
+| `SQLITE_DB_PATH` | (Optional) Override the database file path | `/var/lib/baku-bus/ayna.sqlite` |
 
 ## Performance
 
-- **Graph caching:** Built once per serverless function cold start (~2-5s), cached in module-level variable. Subsequent requests within the same instance reuse it.
-- **Graph size:** ~3,444 nodes, ~11,700+ edges (bus routes + walking transfers). Fits in serverless function memory.
-- **Route computation:** Sub-second for single best route (Dijkstra on a small graph).
-- **Stop data:** All 3,444 stops loaded on initial page load for map display.
-- **Database driver:** Neon serverless uses HTTP-based queries optimized for edge/serverless environments.
+- **Graph caching:** Built once per Node process at first request (~2–5 s
+  on cold start), cached in a module-level variable.
+- **Graph size:** ~3,444 nodes, ~11,700 bus edges + walking edges. Easily
+  fits in memory.
+- **Route computation:** Sub-second for a single best route (Dijkstra on
+  a small graph). With `k=1` Yen's loop is skipped entirely.
+- **Stop data:** All ~3,444 stops loaded on initial page load for map
+  display (paginatable via query string if a caller prefers).
+- **SQLite mode:** WAL journal + `synchronous=NORMAL` for fast reads;
+  the runtime opens the file read-only.
 
 ## Security
 
-- Database credentials in environment variables only
-- SSL/TLS for all database connections (Neon default)
-- SQL injection prevention via tagged template literals
-- Input validation on all API endpoints
-- No user authentication (public transit data)
-- `viewport-fit=cover` with safe area insets for modern mobile browsers
+- No external services to authenticate against — the app and data are
+  fully local.
+- Prepared statements throughout (`?` placeholders) — SQL injection is
+  not possible from app code.
+- Input validation on all API endpoints.
+- No user authentication (public transit data).
+- `viewport-fit=cover` with safe area insets for modern mobile browsers.

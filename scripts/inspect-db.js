@@ -1,101 +1,89 @@
-require('dotenv').config();
-const { neon } = require('@neondatabase/serverless');
+#!/usr/bin/env node
+/**
+ * Inspect the local SQLite database — schema + sample data dump.
+ *
+ * Usage:
+ *   npm run inspect-db
+ *   SQLITE_DB_PATH=./data/ayna.sqlite npm run inspect-db
+ */
+const path = require('path');
+const Database = require('better-sqlite3');
 
-// Schema is stored as uppercase in .env but PostgreSQL stores it lowercase
-const schema = (process.env.DATABASE_SCHEMA || 'public').toLowerCase();
-const sql = neon(process.env.DATABASE_URL);
+const DB_PATH = process.env.SQLITE_DB_PATH || path.join(process.cwd(), 'data', 'ayna.sqlite');
 
-async function inspect() {
-  console.log(`Inspecting schema: ${schema}`);
+function main() {
+  let db;
+  try {
+    db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+  } catch (err) {
+    console.error(`Cannot open database at ${DB_PATH}: ${err.message}`);
+    console.error('Run `python scripts/run_migrations.py` first.');
+    process.exit(1);
+  }
 
-  // 1. List all tables
-  const tables = await sql`
-    SELECT table_name
-    FROM information_schema.tables
-    WHERE table_schema = ${schema} AND table_type = 'BASE TABLE'
-    ORDER BY table_name
-  `;
+  console.log(`Database: ${DB_PATH}`);
+
+  // 1. Tables
+  const tables = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+  ).all();
   console.log('\n=== TABLES ===');
   console.log(JSON.stringify(tables, null, 2));
 
-  // 2. Get columns for each table
+  // 2. Columns per table (PRAGMA table_info)
   console.log('\n=== COLUMNS ===');
   for (const t of tables) {
-    const cols = await sql`
-      SELECT column_name, data_type, is_nullable, column_default,
-             character_maximum_length, numeric_precision, numeric_scale
-      FROM information_schema.columns
-      WHERE table_schema = ${schema} AND table_name = ${t.table_name}
-      ORDER BY ordinal_position
-    `;
-    console.log(`\n--- ${t.table_name} ---`);
+    const cols = db.prepare(`PRAGMA table_info("${t.name}")`).all();
+    console.log(`\n--- ${t.name} ---`);
     console.log(JSON.stringify(cols, null, 2));
   }
 
-  // 3. Primary keys
-  console.log('\n=== PRIMARY KEYS ===');
-  const pks = await sql`
-    SELECT tc.table_name, kcu.column_name
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
-      ON tc.constraint_name = kcu.constraint_name
-      AND tc.table_schema = kcu.table_schema
-    WHERE tc.constraint_type = 'PRIMARY KEY'
-      AND tc.table_schema = ${schema}
-    ORDER BY tc.table_name, kcu.ordinal_position
-  `;
-  console.log(JSON.stringify(pks, null, 2));
+  // 3. Indexes
+  console.log('\n=== INDEXES ===');
+  for (const t of tables) {
+    const idx = db.prepare(`PRAGMA index_list("${t.name}")`).all();
+    if (idx.length === 0) continue;
+    console.log(`\n--- ${t.name} ---`);
+    console.log(JSON.stringify(idx, null, 2));
+  }
 
   // 4. Foreign keys
   console.log('\n=== FOREIGN KEYS ===');
-  const fks = await sql`
-    SELECT
-      tc.table_name AS source_table,
-      kcu.column_name AS source_column,
-      ccu.table_name AS target_table,
-      ccu.column_name AS target_column,
-      tc.constraint_name
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
-      ON tc.constraint_name = kcu.constraint_name
-      AND tc.table_schema = kcu.table_schema
-    JOIN information_schema.constraint_column_usage ccu
-      ON ccu.constraint_name = tc.constraint_name
-      AND ccu.table_schema = tc.table_schema
-    WHERE tc.constraint_type = 'FOREIGN KEY'
-      AND tc.table_schema = ${schema}
-    ORDER BY tc.table_name
-  `;
-  console.log(JSON.stringify(fks, null, 2));
+  for (const t of tables) {
+    const fks = db.prepare(`PRAGMA foreign_key_list("${t.name}")`).all();
+    if (fks.length === 0) continue;
+    console.log(`\n--- ${t.name} ---`);
+    console.log(JSON.stringify(fks, null, 2));
+  }
 
   // 5. Row counts
   console.log('\n=== ROW COUNTS ===');
   for (const t of tables) {
-    const count = await sql(`SELECT COUNT(*) as cnt FROM "${schema}"."${t.table_name}"`);
-    console.log(`${t.table_name}: ${count[0].cnt} rows`);
+    const { c } = db.prepare(`SELECT COUNT(*) AS c FROM "${t.name}"`).get();
+    console.log(`${t.name}: ${c} rows`);
   }
 
-  // 6. Sample data from each table (first 5 rows)
-  console.log('\n=== SAMPLE DATA ===');
+  // 6. Sample data
+  console.log('\n=== SAMPLE DATA (first 5 rows) ===');
   for (const t of tables) {
-    const sample = await sql(`SELECT * FROM "${schema}"."${t.table_name}" LIMIT 5`);
-    console.log(`\n--- ${t.table_name} (sample) ---`);
-    console.log(JSON.stringify(sample, null, 2));
+    const rows = db.prepare(`SELECT * FROM "${t.name}" LIMIT 5`).all();
+    console.log(`\n--- ${t.name} (${rows.length} sample rows) ---`);
+    console.log(JSON.stringify(rows, null, 2));
   }
 
-  // 7. Unique constraints
-  console.log('\n=== UNIQUE CONSTRAINTS ===');
-  const uniques = await sql`
-    SELECT tc.table_name, kcu.column_name, tc.constraint_name
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
-      ON tc.constraint_name = kcu.constraint_name
-      AND tc.table_schema = kcu.table_schema
-    WHERE tc.constraint_type = 'UNIQUE'
-      AND tc.table_schema = ${schema}
-    ORDER BY tc.table_name
-  `;
-  console.log(JSON.stringify(uniques, null, 2));
+  // 7. Views
+  const views = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name"
+  ).all();
+  console.log('\n=== VIEWS ===');
+  console.log(JSON.stringify(views, null, 2));
+
+  db.close();
 }
 
-inspect().catch(e => { console.error(e); process.exit(1); });
+try {
+  main();
+} catch (err) {
+  console.error(err);
+  process.exit(1);
+}

@@ -12,6 +12,7 @@
 .claude
 .env
 nul
+.venv
 
 # testing
 /coverage
@@ -33,12 +34,18 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-!.env.example
+# env files (none required by the app, but ignore stragglers anyway)
+.env
+.env.*
 
 # vercel
 .vercel
+
+# local SQLite transient files only — the .sqlite database itself is committed
+# (see data/ayna.sqlite) so a fresh clone is usable without re-running the scrapers.
+/data/*.sqlite-journal
+/data/*.sqlite-wal
+/data/*.sqlite-shm
 
 # typescript
 *.tsbuildinfo

@@ -72,6 +72,12 @@ export class TransitGraph {
 
       stops.sort((a, b) => a.bus_stop_id - b.bus_stop_id);
 
+      // Per-segment travel time is the route's total duration spread evenly
+      // across all stop-to-stop hops. This is a deliberate simplification —
+      // the upstream API does not publish per-leg timings, and stop-level
+      // congestion data isn't available — so we trade accuracy for
+      // determinism.  Good enough for ranking alternative routes; not a
+      // substitute for a live ETA.
       const segmentCount = Math.max(stops.length - 1, 1);
       const segmentTime = (bus.duration_minuts || 30) / segmentCount;
 
@@ -147,19 +153,23 @@ export class TransitGraph {
 
         if (dist > WALK_RADIUS_KM) continue;
 
-        // Only add walking edge if the two stops serve different bus routes
-        // (no point walking between two stops on the same route)
+        // Only add a walking edge if both stops are served by at least one bus,
+        // *and* stopB has a route stopA doesn't (otherwise the walking shortcut
+        // is redundant — the rider could just stay on the bus).
+        // Defensive: if either side has no buses, the walking edge is useless
+        // (you can't board anything there) so skip it.
         const busesB = stopBuses.get(stopB.id);
-        if (busesA && busesB) {
-          let hasDifferentBus = false;
-          for (const b of busesB) {
-            if (!busesA.has(b)) {
-              hasDifferentBus = true;
-              break;
-            }
+        const aHasBuses = !!busesA && busesA.size > 0;
+        const bHasBuses = !!busesB && busesB.size > 0;
+        if (!aHasBuses || !bHasBuses) continue;
+        let hasDifferentBus = false;
+        for (const b of busesB!) {
+          if (!busesA!.has(b)) {
+            hasDifferentBus = true;
+            break;
           }
-          if (!hasDifferentBus) continue;
         }
+        if (!hasDifferentBus) continue;
 
         const walkTime = (dist / WALK_SPEED_KMH) * 60; // minutes
 

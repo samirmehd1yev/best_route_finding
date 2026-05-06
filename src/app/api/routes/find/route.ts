@@ -39,7 +39,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find the single best route (balanced: shortest + fastest)
+    // Find the single best route (balanced: shortest + fastest).
+    // k=1 short-circuits Yen's loop in findRoutes — only one Dijkstra runs.
     const routes = findRoutes(graph, fromStopId, toStopId, "balanced", 1);
 
     if (routes.length === 0) {
