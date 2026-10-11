@@ -151,6 +151,7 @@ fetch_all_bus_details()
 save_all(all_buses)
   └── with transaction():                        # one atomic block
         _save_reference_tables()
+        truncate_table("bus_stops")               # remove old stop references
         _save_stop_details()
         _save_buses()
         _save_bus_stops()
@@ -174,10 +175,14 @@ failures are logged but tolerated up to a configurable threshold
 (`FAILURE_THRESHOLD`, default `0.05` = 5 %). Above that threshold the
 function returns `None` so the existing database content is kept
 untouched. Below it, ingest proceeds with the partial data.
+The threshold must be finite and between 0 and 1; invalid values abort
+before any bus fetches begin.
 
 ### `save_all(all_buses) -> bool`
 Single transaction wrapping every per-table saver. Rolls back on any
-exception.
+exception and rejects empty replacements. Old bus-stop references are
+deleted before stop details, allowing repeated refreshes with foreign-key
+enforcement enabled.
 
 ### Per-table savers (private):
 

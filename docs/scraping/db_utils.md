@@ -130,7 +130,8 @@ Converts an Ayna-API coordinate value into a validated float in
 | `49.961721` (number) | `49.961721` |
 | `"49.961721"` (period decimal) | `49.961721` |
 | `"49,961721"` (comma decimal) | `49.961721` |
-| `"49,961,721"` (Ayna grouped form — first group = degrees) | `49.961721` |
+| `"49,961,721"` (Ayna grouped form) | `49.961721` |
+| `"4,049,233"` (grouped form with five decimal places) | `40.49233` |
 | `"-49.961721"` | `-49.961721` |
 | `""` / `None` / `"junk"` | `None` |
 | `"999.0"` (out of range) | `None` |
@@ -138,10 +139,16 @@ Converts an Ayna-API coordinate value into a validated float in
 Out-of-range and unparseable values produce a `WARNING` log and return
 `None` so downstream `NOT NULL` constraints fail loudly.
 
-> The previous parser stripped all separators and re-inserted a decimal
-> at a hardcoded position — it would silently corrupt anything that
-> wasn't already in Baku-shaped form. The new parser tries the obvious
-> formats in order and bounds-checks the result.
+Grouped Ayna strings contain thousands separators after the decimal point
+has been removed. The degree portion has two digits in this region; the
+first comma group can have one digit when the source uses five decimals.
+This ambiguous format is accepted only for values with magnitude 38–51.
+Ordinary numbers and period/comma decimals retain their original decimal
+position and support the full range above.
+
+Migration `002_repair_grouped_latitudes.sql` repairs the two affected stop
+IDs in older snapshots, guarded by their exact old values. The bundled
+database already contains this repair.
 
 ## Connection Test
 

@@ -59,6 +59,9 @@ def fetch_stops() -> Optional[List[Dict[str, Any]]]:
 
 def save_stops_to_db(stops: List[Dict[str, Any]]) -> bool:
     """Replace the entire ``stops`` table atomically."""
+    if not stops:
+        logger.error("Refusing to replace stops with an empty list")
+        return False
     if not table_exists("stops"):
         logger.error("Table 'stops' does not exist. Run migrations first.")
         return False

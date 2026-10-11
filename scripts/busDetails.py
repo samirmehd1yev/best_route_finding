@@ -21,6 +21,7 @@ ingestion possible".
 
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -90,6 +91,15 @@ _DEFAULT_FAILURE_FRACTION = 0.05
 
 
 def fetch_all_bus_details() -> Optional[List[Dict[str, Any]]]:
+    try:
+        threshold = float(os.getenv("FAILURE_THRESHOLD", str(_DEFAULT_FAILURE_FRACTION)))
+    except ValueError:
+        logger.error("FAILURE_THRESHOLD must be a finite fraction between 0 and 1")
+        return None
+    if not math.isfinite(threshold) or not 0 <= threshold <= 1:
+        logger.error("FAILURE_THRESHOLD must be a finite fraction between 0 and 1")
+        return None
+
     bus_list = fetch_bus_list()
     if not bus_list:
         logger.error("Failed to fetch bus list")
@@ -132,12 +142,6 @@ def fetch_all_bus_details() -> Optional[List[Dict[str, Any]]]:
     # gone wrong upstream and we don't want to wipe out the DB to replace it
     # with a partial copy. Atomicity at the DB layer is still guaranteed by the
     # surrounding transaction in save_all().
-    threshold_str = os.getenv("FAILURE_THRESHOLD")
-    try:
-        threshold = float(threshold_str) if threshold_str else _DEFAULT_FAILURE_FRACTION
-    except ValueError:
-        threshold = _DEFAULT_FAILURE_FRACTION
-
     failure_rate = len(failures) / total_buses
     if failure_rate > threshold:
         logger.error(
@@ -347,9 +351,13 @@ def _save_route_coordinates(all_buses: List[Dict[str, Any]]) -> None:
 
 def save_all(all_buses: List[Dict[str, Any]]) -> bool:
     """Persist every table inside one atomic transaction."""
+    if not all_buses:
+        logger.error("Refusing to replace the database with an empty bus list")
+        return False
     try:
         with transaction():
             _save_reference_tables(all_buses)
+            truncate_table("bus_stops")
             _save_stop_details(all_buses)
             _save_buses(all_buses)
             _save_bus_stops(all_buses)

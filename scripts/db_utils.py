@@ -51,6 +51,7 @@ def parse_coordinate(value: Any) -> Optional[float]:
         * ``"49.961721"``         -> string period decimal
         * ``"49,961721"``         -> comma decimal (some EU locales)
         * ``"49,961,721"``        -> Ayna "grouped" form meaning 49.961721
+        * ``"4,049,233"``         -> grouped form with five decimals: 40.49233
         * ``49`` / ``"49"``       -> bare integer degree
 
     Returns ``None`` for empty input or anything outside ``[-180, 180]`` so
@@ -80,17 +81,16 @@ def parse_coordinate(value: Any) -> Optional[float]:
         except ValueError:
             pass
 
-    # 3) Ayna "grouped" form: digits separated by commas, no period.
-    #    Treat the first group as the integer degree, concat the rest as fractional.
-    if "." not in s and re.fullmatch(r"-?\d+(?:,\d+)+", s):
+    # Ayna groups the digits after removing the decimal point. Baku coordinates
+    # have two degree digits, even when five decimals leave a one-digit group.
+    if re.fullmatch(r"-?\d{1,3}(?:,\d{3}){2,}", s):
         sign = -1.0 if s.startswith("-") else 1.0
-        digits = s.lstrip("-").split(",")
-        integer_part, fractional_part = digits[0], "".join(digits[1:])
-        if integer_part and fractional_part:
-            try:
-                return _validate(sign * float(f"{integer_part}.{fractional_part}"))
-            except ValueError:
-                pass
+        digits = s.lstrip("-").replace(",", "")
+        coordinate = float(f"{digits[:2]}.{digits[2:]}")
+        # The grouped notation is ambiguous outside the source's region.
+        # Ordinary numeric, period-decimal and comma-decimal inputs stay global.
+        if 38 <= coordinate <= 51:
+            return _validate(sign * coordinate)
 
     logger.warning("Could not parse coordinate: %r", value)
     return None

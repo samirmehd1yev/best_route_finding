@@ -101,10 +101,10 @@ ISO-8601 in UTC. The `getDataLastUpdated()` API uses
 
 ## Data Quality Notes
 
-1. **Coordinate parsing.** The upstream API ships coordinates in a mix of forms (`"49.961721"`, `"49,961721"`, and the quirky grouped form `"49,961,721"` meaning `49.961721`). The Python parser in `scripts/db_utils.py` handles all three and rejects values outside `[-180, 180]` so corrupt data fails loudly rather than silently.
+1. **Coordinate parsing.** The upstream API ships period decimals, comma decimals, and grouped digit strings. Grouped values have two degree digits for this region: `"49,961,721"` means `49.961721`, while `"4,049,233"` means `40.49233`. The parser accepts grouped values only within magnitude 38–51, and ordinary decimals within `[-180, 180]`. Migration `002_repair_grouped_latitudes.sql` repairs the two affected stop IDs in old snapshots.
 2. **Intermediate distances.** `intermediate_distance` in `bus_stops` is frequently null. Distance between stops is therefore computed at runtime via the Haversine formula in `src/lib/geo.ts`.
 3. **Stop naming.** Stop names are in Azerbaijani. `m/st` = metro station, `NMM` = terminal, `k.` = street, `qəs.` = settlement.
 4. **Direction pairs.** Most buses have exactly two route entries (forward + return), totalling ~396 routes for ~207 buses.
 5. **Coordinate precision.** Typically 6–7 decimal places (~10 cm precision).
 6. **Booleans as integers.** SQLite has no boolean type — `is_transport_hub`, `is_active`, etc. are `INTEGER 0/1`. The JS layer coerces with `!!`.
-7. **Atomic ingest.** `scripts/busDetails.py` wraps the entire load in a single transaction — partial ingests are no longer possible. If a single bus fails to fetch, the script aborts and the on-disk database is untouched.
+7. **Atomic ingest.** `scripts/busDetails.py` replaces all tables in one transaction and removes old `bus_stops` references before replacing stops. Failed writes roll back every table. Fetch failures up to `FAILURE_THRESHOLD` (default 5%) can produce a deliberately incomplete snapshot; higher failure rates, invalid thresholds, and empty replacements abort without overwriting the database.

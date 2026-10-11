@@ -17,6 +17,7 @@ nul
 # testing
 /coverage
 /.test-build/
+__pycache__/
 
 # next.js
 /.next/
