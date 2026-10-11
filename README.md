@@ -117,6 +117,12 @@ transaction, so a network failure mid-run leaves your existing data
 intact. `busDetails.py` tolerates up to 5 % of bus fetches failing
 (override with `FAILURE_THRESHOLD=0.10`, etc.) — the upstream API has
 one or two persistently broken IDs.
+The threshold must be a finite fraction from 0 to 1. Invalid thresholds
+and empty replacements abort without overwriting existing data.
+
+The bundled snapshot includes the grouped-latitude repair for stops 3838
+and 3839. Run the migrations on older copies to apply the same repair;
+the importer also preserves five-decimal grouped coordinates on refresh.
 
 ### 3. Run the app
 
@@ -175,6 +181,7 @@ best_route_finding/
 │   │   ├── graph.ts                   # Transit graph with walking edges
 │   │   ├── routing.ts                 # Dijkstra + Yen's algorithms
 │   │   ├── geo.ts                     # Haversine distance calculations
+│   │   ├── geometry.ts                # Stop alignment and clipped road geometry
 │   │   └── types.ts                   # TypeScript type definitions
 │   └── components/
 │       ├── Map.tsx                    # Interactive Leaflet map with route visualization
@@ -215,10 +222,12 @@ Find stops near a location.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `lat` | float | Yes | Latitude |
-| `lng` | float | Yes | Longitude |
-| `radius` | float | No | Search radius in km (default 1.0) |
-| `limit` | int | No | Max results (default 20) |
+| `lat` | float | Yes | Finite latitude from -90 to 90 |
+| `lng` | float | Yes | Finite longitude from -180 to 180 |
+| `radius` | float | No | Finite, non-negative radius in km (default 1.0) |
+| `limit` | int | No | Positive result limit (default 20) |
+
+Invalid coordinates, radii, or limits return HTTP 400.
 
 ### GET /api/buses
 
@@ -231,12 +240,17 @@ Compute the optimal route between two stops. Body:
 { "fromStopId": 1439, "toStopId": 631 }
 ```
 
+IDs must be positive integers and must differ. Malformed JSON or invalid
+IDs return HTTP 400; unknown stops or unreachable destinations return 404.
+
 ### GET /api/routes/geometry
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `busId` | int | Yes | Bus line ID |
 | `direction` | int | No | 1=forward, 2=return (default 1) |
+
+Invalid IDs or directions return HTTP 400.
 
 ### GET /api/data-status
 
@@ -288,25 +302,27 @@ is loaded yet. The first request that hits a graph-using endpoint
 
 1. Open `data/ayna.sqlite` read-only via `better-sqlite3`. The
    connection caches at module level for the life of the process.
-2. Pull every row of `stop_details`, `buses`, and `bus_stops` in
-   parallel via the `db.ts` query helpers (3 prepared statements).
+2. Load stops, buses, stop sequences, routes, and route coordinates
+   via the `db.ts` query helpers.
 3. **Index** stops by ID (`stopInfo`) and buses by ID (`busInfo`).
 4. **Bus edges:** Group `bus_stops` by `(bus_id, direction_type_id)`,
-   sort by ordinal `bus_stop_id`, and for every consecutive pair add
-   a directed edge with `distance = haversine(...)` and
+   sort by `bus_stop_id`, collapse duplicate full sequences, and align
+   stops with their recorded road geometry. Each consecutive pair gets
+   a directed edge with its direction, sequence positions, road distance,
+   clipped geometry, and
    `time = duration_minuts / segment_count` (uniform per route — the
    upstream API doesn't publish per-leg timings).
-5. **Walking edges:** O(n²) sweep over all stop pairs with a coarse
-   lat/lng pre-filter (≤ 0.004° / 0.005°), then a haversine check
-   (≤ 300 m). A walking edge is only added if both endpoints have at
-   least one bus AND `stopB` exposes a route `stopA` doesn't —
-   otherwise the walk is a redundant shortcut. Speed is 4.5 km/h.
-6. The resulting graph (~3,456 nodes, ~15,600 edges of which ~4,200
-   are walking) is cached in a module-level singleton. Subsequent
-   requests reuse it.
+5. **Walking edges:** O(n²) sweep over all stop pairs with a safe
+   latitude pre-filter and a Haversine distance check (≤ 300 m).
+   Connections are bidirectional regardless of shared bus lines.
+   Walking speed is 4.5 km/h.
+6. The graph is cached in a module-level singleton. Concurrent requests
+   wait for the same build; failed builds can be retried.
 
-Cold-start cost: **~70 ms** in production (graph build + first
-Dijkstra). Warm requests: **6–10 ms**.
+Road geometry is oriented and clipped to match the ordered bus stops.
+Supplied intermediate distances take precedence; missing geometry falls
+back to great-circle distance. Build and request times depend on the data
+and host.
 
 ### C. Request path — finding the best route
 
@@ -316,11 +332,11 @@ Dijkstra). Warm requests: **6–10 ms**.
    │  POST /api/routes/find   │                            │
    │  {from,to} ─────────────▶│                            │
    │                          │  getGraph() (cached)       │
-   │                          │  findRoutes(g, …, k=1) ───▶│  3 SELECTs
+   │                          │  findRoutes(g, …, k=1) ───▶│  5 SELECTs
    │                          │     │                       │  on cold start
    │                          │     ▼                      │
    │                          │  modified Dijkstra         │
-   │                          │  over (stopId, busId)      │
+   │                          │  over stop + ride state    │
    │                          │  state space               │
    │                          │     │                       │
    │                          │     ▼                      │
@@ -348,43 +364,44 @@ shortest:   distance + (isTransfer ? 0.5 : 0)
 fastest:    time + (isTransfer ? 5 : 0)
 ```
 
-A transfer is detected when the current bus ID is non-null and differs
-from the edge's bus ID — including walking edges (`busId = -1`).
+A transfer is a new boarding after the first bus ride. Walking has no
+transfer penalty of its own. A bus–walk–bus connection incurs one penalty;
+walking before the first bus or after the last incurs none.
 
-#### Why state is `(stopId, busId)`, not just `stopId`
+#### Search state
 
-If Dijkstra ran over plain stop IDs, it couldn't tell whether arriving
-at a stop "still on Bus 4" was different from arriving "after just
-boarding Bus 4". It would either over-count transfers (charging a
-penalty for staying on the same bus) or under-count them. The
-expanded `(stopId, busId)` state space lets us charge a transfer
-penalty exactly once per actual bus change.
+Dijkstra tracks `(stopId, busId, directionTypeId, sequence, hasBoarded)`.
+This distinguishes continuing a ride from changing direction, boarding
+again after walking, or boarding at another occurrence of a repeated stop.
+Queued entries with stale costs are skipped.
 
 #### Yen's k-shortest paths — and why we use k=1
 
 `findRoutes()` is generic over `k`; the API hard-codes `k=1` so only a
-single Dijkstra runs. The Yen scaffolding is kept for future use cases
-where alternative routes are useful (e.g. "show me three options").
+single Dijkstra runs. For larger `k`, Yen combines each root and spur with
+their complete cost and boarding context. Exact edge identities preserve
+parallel services and distinguish routes with equal stop counts.
 
 ### Path reconstruction
 
-Once Dijkstra reaches the target state, `reconstructRoute()` walks the
-`prev` map back to the source and groups consecutive edges by `busId`
-into segments. Walking segments (`busId = -1`) bridge bus segments but
-don't count as transfers — the final tally is
-`totalTransfers = max(0, busSegments.length - 1)`.
+Once Dijkstra reaches the target, the complete edge path is grouped into
+continuous rides and walking segments. Recorded road geometry is joined
+across the bus legs and sent directly to the map. Transfers count new
+boardings after the first, and total time includes five minutes per transfer.
+Shared stops are deduplicated only at adjacent bus-segment boundaries;
+distinct stops connected by walking are both counted.
 
 The result returned to the client:
 
 ```ts
 {
   segments: [
-    { busId, busNumber, stops: [...], distance, time },
+    { busId, busNumber, directionTypeId, stops: [...], geometry: [...], distance, time },
     ...
   ],
   totalDistance,   // km, 2 decimals
-  totalTime,       // min, 1 decimal
-  totalTransfers,  // bus changes, walking doesn't count
+  totalTime,       // min including transfer waits, 1 decimal
+  totalTransfers,  // boardings after the first ride
   totalStops,      // bus stops on the journey
 }
 ```
@@ -435,6 +452,33 @@ See [docs/routing-algorithm.md](docs/routing-algorithm.md) for full
 pseudocode and complexity analysis, and
 [docs/architecture.md](docs/architecture.md) for the layered system
 diagram.
+
+### Validation
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
+
+For production browser and API regression checks:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+This builds the app, starts an isolated local server, and checks road
+geometry, desktop/mobile framing, keyboard stop selection, stale requests,
+walking-transfer instructions, and input validation. Map tiles are excluded
+from these tests so external tile availability does not affect the results.
+
+After installing `requirements.txt`, test the coordinate importer, database
+refresh, and rollback behavior without modifying the bundled database:
+
+```bash
+python3 tests/test_ingestion.py
+```
 
 ## Database Schema
 
