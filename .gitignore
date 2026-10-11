@@ -16,6 +16,7 @@ nul
 
 # testing
 /coverage
+/.test-build/
 
 # next.js
 /.next/

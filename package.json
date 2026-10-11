@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/tests/*.test.js",
+    "typecheck": "tsc --noEmit",
     "inspect-db": "node scripts/inspect-db.js",
     "inspect-data": "node scripts/inspect-data.js"
   },
@@ -28,13 +29,16 @@
     "url": "https://github.com/Ismat-Samadov/best_route_finding/issues"
   },
   "homepage": "https://github.com/Ismat-Samadov/best_route_finding#readme",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.18",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^25.2.3",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^13.0.3",
     "leaflet": "^1.9.4",
     "next": "^16.1.6",
     "postcss": "^8.5.6",

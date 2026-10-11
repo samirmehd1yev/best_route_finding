@@ -75,7 +75,7 @@ journey on both panels.
 
 ### Prerequisites
 
-- Node.js 20+ and npm
+- Node.js 22+ and npm
 - Python 3.11+ — only required if you want to **refresh** data; the
   prebuilt `data/ayna.sqlite` is committed to this repo, so a fresh
   clone is immediately runnable.
@@ -88,7 +88,8 @@ cd best_route_finding
 npm install
 ```
 
-`better-sqlite3` is a native module and will compile during install.
+`better-sqlite3` includes native binaries for supported platforms and compiles
+from source on other platforms.
 
 The repository already contains a populated `data/ayna.sqlite` with
 the latest scrape — you can skip step 2 and go straight to running the
@@ -463,7 +464,7 @@ sqlite3 data/ayna.sqlite '.schema'
 
 ## Deployment
 
-The app is a normal Next.js Node app. Anywhere that runs Node 20+ works.
+The app is a normal Next.js Node app. Use Node 22 or newer.
 
 * **Local / VPS:** `npm run build && npm start`. Mount the SQLite file
   next to the build (or set `SQLITE_DB_PATH`).

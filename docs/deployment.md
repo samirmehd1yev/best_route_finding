@@ -2,11 +2,11 @@
 
 The app is a normal Next.js Node application backed by a local SQLite file.
 There is no external database to provision and no GitHub Action to wire up.
-Anywhere that runs Node 20+ will host it.
+Use Node 22 or newer.
 
 ## Prerequisites
 
-- Node.js 20+ (or 22+) on the host
+- Node.js 22+ on the host
 - A populated `./data/ayna.sqlite` file produced by the Python scrapers
   (see [scraping docs](scraping/run_migrations.md))
 
@@ -41,7 +41,7 @@ Framework Preset:  Next.js
 Build Command:     next build
 Output Directory:  .next
 Install Command:   npm install
-Node.js Version:   20.x or 22.x
+Node.js Version:   22.x or newer
 ```
 
 `better-sqlite3` is a native module and ships pre-built binaries for the

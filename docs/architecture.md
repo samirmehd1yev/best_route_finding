@@ -68,7 +68,7 @@
 | Maps | Leaflet + react-leaflet | 1.9 / 5.0 |
 | Database driver (Node) | `better-sqlite3` | 11.x |
 | Database driver (Python) | stdlib `sqlite3` | — |
-| Deployment | any Node 20+ host | — |
+| Deployment | any Node 22+ host | — |
 
 ## Project Structure
 
