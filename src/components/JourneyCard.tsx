@@ -31,17 +31,22 @@ export default function JourneyCard({ route }: JourneyCardProps) {
         </div>
         <div className="journey-stat">
           <span className="journey-stat-value">{Math.round(route.totalTime)}</span>
-          <span className="journey-stat-label">min</span>
+          <span className="journey-stat-label">min (est.)</span>
         </div>
         <div className="journey-stat">
           <span className="journey-stat-value">
-            {busCount === 1 ? "Direct" : `${busCount} buses`}
+            {busCount === 0 ? "Walk" : busCount === 1 ? "Direct" : `${busCount} buses`}
           </span>
           <span className="journey-stat-label">
             {route.totalTransfers === 0 ? "no transfer" : `${route.totalTransfers} transfer${route.totalTransfers > 1 ? "s" : ""}`}
           </span>
         </div>
       </div>
+      {route.totalTransfers > 0 && (
+        <p className="bus-detail">
+          Includes about {Math.round(route.totalTime - route.segments.reduce((sum, segment) => sum + segment.time, 0))} min for transfers
+        </p>
+      )}
 
       {/* Timeline */}
       <div className="journey-timeline">
@@ -91,8 +96,8 @@ export default function JourneyCard({ route }: JourneyCardProps) {
                 )}
               </div>
 
-              {/* Transfer point between segments (skip if next is walking or current is walking) */}
-              {idx < route.segments.length - 1 && !isWalking && route.segments[idx + 1].busId !== WALKING_EDGE_BUS_ID && (
+              {/* Show every change, including boarding and alighting beside a walking leg. */}
+              {idx < route.segments.length - 1 && (
                 <div className="timeline-row">
                   <div className="timeline-dot transfer" />
                   <div className="timeline-content">
@@ -100,7 +105,9 @@ export default function JourneyCard({ route }: JourneyCardProps) {
                       {segment.stops[segment.stops.length - 1]?.name}
                     </span>
                     <span className="timeline-label transfer-label">
-                      Transfer to Bus {route.segments[idx + 1]?.busNumber}
+                      {route.segments[idx + 1].busId === WALKING_EDGE_BUS_ID
+                        ? "Continue on foot"
+                        : `${isWalking ? "Board" : "Transfer to"} Bus ${route.segments[idx + 1].busNumber}`}
                     </span>
                   </div>
                 </div>

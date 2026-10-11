@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface LocationButtonProps {
   onLocationFound: (lat: number, lng: number) => void;
+  disabled?: boolean;
 }
 
-export default function LocationButton({ onLocationFound }: LocationButtonProps) {
+export default function LocationButton({ onLocationFound, disabled }: LocationButtonProps) {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+
+  useEffect(() => {
+    if (status !== "success" && status !== "error") return;
+    const timer = setTimeout(() => setStatus("idle"), status === "success" ? 2000 : 3000);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   const handleClick = () => {
     if (!navigator.geolocation) {
@@ -19,11 +26,9 @@ export default function LocationButton({ onLocationFound }: LocationButtonProps)
       (pos) => {
         setStatus("success");
         onLocationFound(pos.coords.latitude, pos.coords.longitude);
-        setTimeout(() => setStatus("idle"), 2000);
       },
       () => {
         setStatus("error");
-        setTimeout(() => setStatus("idle"), 3000);
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -32,7 +37,7 @@ export default function LocationButton({ onLocationFound }: LocationButtonProps)
   const cls = `location-btn ${status === "success" ? "success" : ""} ${status === "error" ? "error" : ""}`;
 
   return (
-    <button className={cls} onClick={handleClick} disabled={status === "loading"}>
+    <button className={cls} onClick={handleClick} disabled={disabled || status === "loading"}>
       {status === "loading" ? (
         <>
           <span className="spinner" style={{ borderColor: "rgba(0,0,0,0.15)", borderTopColor: "#2563eb", width: 16, height: 16 }} />
@@ -46,7 +51,7 @@ export default function LocationButton({ onLocationFound }: LocationButtonProps)
           Location found! Nearest stop selected.
         </>
       ) : status === "error" ? (
-        "Location access denied"
+        "Unable to get your location"
       ) : (
         <>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

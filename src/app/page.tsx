@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import StopSearch from "@/components/StopSearch";
 import JourneyCard from "@/components/JourneyCard";
@@ -48,33 +48,71 @@ export default function Home() {
   // Mobile: "search" = form panel, "map" = map panel
   const [mobileView, setMobileView] = useState<"search" | "map">("search");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const routeRequest = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    fetch("/api/stops")
-      .then((r) => r.json())
-      .then((data) => setStops(data.stops || []))
-      .catch(() => setError("Failed to load bus stops"));
+    const controller = new AbortController();
+    fetch("/api/stops", { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load bus stops");
+        return r.json();
+      })
+      .then((data) => {
+        if (!controller.signal.aborted) setStops(data.stops || []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError("Failed to load bus stops");
+      });
 
-    fetch("/api/data-status")
-      .then((r) => r.json())
-      .then((data) => setLastUpdated(data.lastUpdated ?? null))
+    fetch("/api/data-status", { signal: controller.signal })
+      .then((r) => r.ok ? r.json() : { lastUpdated: null })
+      .then((data) => {
+        if (!controller.signal.aborted) setLastUpdated(data.lastUpdated ?? null);
+      })
       .catch(() => {});
+
+    return () => {
+      controller.abort();
+      routeRequest.current?.abort();
+      routeRequest.current = null;
+    };
   }, []);
+
+  const invalidateRoute = useCallback(() => {
+    routeRequest.current?.abort();
+    routeRequest.current = null;
+    setRoute(null);
+    setError(null);
+    setLoading(false);
+  }, []);
+
+  const handleFromSelect = useCallback((stop: StopDetail | null) => {
+    invalidateRoute();
+    setFromStop(stop);
+  }, [invalidateRoute]);
+
+  const handleToSelect = useCallback((stop: StopDetail | null) => {
+    invalidateRoute();
+    setToStop(stop);
+  }, [invalidateRoute]);
 
   const handleFindRoute = useCallback(async () => {
     if (!fromStop || !toStop) return;
+    invalidateRoute();
+    const controller = new AbortController();
+    routeRequest.current = controller;
     setLoading(true);
-    setError(null);
-    setRoute(null);
 
     try {
       const res = await fetch("/api/routes/find", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fromStopId: fromStop.id, toStopId: toStop.id }),
+        signal: controller.signal,
       });
       const data = await res.json();
+      if (routeRequest.current !== controller) return;
       if (!res.ok) {
         setError(data.error || "Route finding failed");
         return;
@@ -83,11 +121,14 @@ export default function Home() {
       // On mobile, switch to map view to show the route
       setMobileView("map");
     } catch {
-      setError("Network error. Please try again.");
+      if (routeRequest.current === controller) setError("Network error. Please try again.");
     } finally {
-      setLoading(false);
+      if (routeRequest.current === controller) {
+        routeRequest.current = null;
+        setLoading(false);
+      }
     }
-  }, [fromStop, toStop]);
+  }, [fromStop, toStop, invalidateRoute]);
 
   const handleLocationFound = useCallback(
     (lat: number, lng: number) => {
@@ -104,14 +145,15 @@ export default function Home() {
             nearest = stop;
           }
         }
-        setFromStop(nearest);
+        handleFromSelect(nearest);
       }
     },
-    [stops]
+    [stops, handleFromSelect]
   );
 
   const handleMapStopClick = useCallback(
     (stop: StopDetail) => {
+      invalidateRoute();
       if (!fromStop) {
         setFromStop(stop);
       } else if (!toStop) {
@@ -119,18 +161,17 @@ export default function Home() {
       } else {
         setFromStop(stop);
         setToStop(null);
-        setRoute(null);
       }
     },
-    [fromStop, toStop]
+    [fromStop, toStop, invalidateRoute]
   );
 
   const handleSwapStops = useCallback(() => {
+    invalidateRoute();
     const temp = fromStop;
     setFromStop(toStop);
     setToStop(temp);
-    setRoute(null);
-  }, [fromStop, toStop]);
+  }, [fromStop, toStop, invalidateRoute]);
 
   return (
     <div className="app-layout">
@@ -152,7 +193,7 @@ export default function Home() {
 
         <div className="sidebar-body">
           <div className="form-section">
-            <LocationButton onLocationFound={handleLocationFound} />
+            <LocationButton onLocationFound={handleLocationFound} disabled={stops.length === 0} />
           </div>
 
           <div className="form-section">
@@ -161,7 +202,7 @@ export default function Home() {
               placeholder="Search start stop..."
               stops={stops}
               selectedStop={fromStop}
-              onSelect={setFromStop}
+              onSelect={handleFromSelect}
               dotColor="green"
             />
           </div>
@@ -180,7 +221,7 @@ export default function Home() {
               placeholder="Search destination stop..."
               stops={stops}
               selectedStop={toStop}
-              onSelect={setToStop}
+              onSelect={handleToSelect}
               dotColor="red"
             />
           </div>
@@ -189,7 +230,7 @@ export default function Home() {
             <button
               className="primary-btn"
               onClick={handleFindRoute}
-              disabled={!fromStop || !toStop || loading}
+              disabled={!fromStop || !toStop || fromStop.id === toStop.id || loading}
             >
               {loading ? (
                 <>

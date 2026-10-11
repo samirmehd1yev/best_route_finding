@@ -79,26 +79,33 @@ function FitBounds({
   const map = useMap();
 
   useEffect(() => {
-    if (route) {
-      const allCoords: [number, number][] = [];
-      for (const seg of route.segments) {
-        for (const stop of seg.stops) {
-          allCoords.push([stop.latitude, stop.longitude]);
+    function fitJourney() {
+      if (route) {
+        const allCoords: [number, number][] = [];
+        for (const seg of route.segments) {
+          for (const point of seg.geometry) {
+            allCoords.push([point.latitude, point.longitude]);
+          }
+          for (const stop of seg.stops) {
+            allCoords.push([stop.latitude, stop.longitude]);
+          }
         }
+        if (allCoords.length > 0) {
+          map.fitBounds(L.latLngBounds(allCoords), { padding: [60, 60], animate: false });
+        }
+      } else if (fromStop && toStop) {
+        const bounds = L.latLngBounds([
+          [fromStop.latitude, fromStop.longitude],
+          [toStop.latitude, toStop.longitude],
+        ]);
+        map.fitBounds(bounds, { padding: [60, 60], animate: false });
+      } else if (fromStop) {
+        map.setView([fromStop.latitude, fromStop.longitude], 15);
       }
-      if (allCoords.length > 0) {
-        const bounds = L.latLngBounds(allCoords);
-        map.fitBounds(bounds, { padding: [60, 60] });
-      }
-    } else if (fromStop && toStop) {
-      const bounds = L.latLngBounds([
-        [fromStop.latitude, fromStop.longitude],
-        [toStop.latitude, toStop.longitude],
-      ]);
-      map.fitBounds(bounds, { padding: [60, 60] });
-    } else if (fromStop) {
-      map.setView([fromStop.latitude, fromStop.longitude], 15);
     }
+    fitJourney();
+    map.on("resize", fitJourney);
+    return () => { map.off("resize", fitJourney); };
   }, [map, fromStop, toStop, route]);
 
   return null;
@@ -121,7 +128,7 @@ export default function MapView({
     let busColorIdx = 0;
     return route.segments.map((seg) => {
       const isWalking = seg.busId === WALKING_EDGE_BUS_ID;
-      const coords: [number, number][] = seg.stops.map((s) => [s.latitude, s.longitude]);
+      const coords: [number, number][] = seg.geometry.map((point) => [point.latitude, point.longitude]);
       const color = isWalking ? "#64748b" : SEGMENT_COLORS[busColorIdx % SEGMENT_COLORS.length];
       if (!isWalking) busColorIdx++;
       return {

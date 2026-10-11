@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, useId } from "react";
 import type { StopDetail } from "@/lib/types";
 
 interface StopSearchProps {
@@ -25,10 +25,11 @@ export default function StopSearch({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputId = useId();
 
   const filtered = useMemo(() => {
     if (!query.trim()) return [];
-    const q = query.toLowerCase();
+    const q = query.trim().toLowerCase();
     return stops
       .filter((s) => s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q))
       .slice(0, 20);
@@ -50,9 +51,10 @@ export default function StopSearch({
 
   useEffect(() => {
     if (isOpen && filtered.length > 0 && dropdownRef.current) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         dropdownRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }, 100);
+      return () => clearTimeout(timer);
     }
   }, [isOpen, filtered.length]);
 
@@ -68,10 +70,10 @@ export default function StopSearch({
 
   return (
     <div ref={containerRef}>
-      <div className="form-label">
+      <label className="form-label" htmlFor={inputId}>
         <span className={`dot ${dotColor}`} />
         {label}
-      </div>
+      </label>
 
       {selectedStop ? (
         <div className="selected-stop">
@@ -83,7 +85,7 @@ export default function StopSearch({
               onSelect(null);
               setQuery("");
             }}
-            aria-label="Clear selection"
+            aria-label={`Clear ${label.toLowerCase()} stop`}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -94,6 +96,7 @@ export default function StopSearch({
         <div>
           <input
             ref={inputRef}
+            id={inputId}
             type="text"
             value={query}
             onChange={(e) => {
@@ -111,14 +114,7 @@ export default function StopSearch({
                 <button
                   key={stop.id}
                   className="dropdown-item"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    handleSelect(stop);
-                  }}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    handleSelect(stop);
-                  }}
+                  onClick={() => handleSelect(stop)}
                 >
                   <div className="name">{stop.name}</div>
                   <div className="code">{stop.code}</div>
