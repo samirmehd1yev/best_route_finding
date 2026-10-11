@@ -1,18 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { queryStopDetails } from "@/lib/db";
-import { findNearbyStops } from "@/lib/geo";
+import { findNearbyStops, isValidCoordinate } from "@/lib/geo";
+import { isPositiveInteger, numericParam } from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const lat = parseFloat(searchParams.get("lat") || "");
-    const lng = parseFloat(searchParams.get("lng") || "");
-    const radius = parseFloat(searchParams.get("radius") || "1.0");
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const lat = numericParam(searchParams.get("lat"));
+    const lng = numericParam(searchParams.get("lng"));
+    const radius = numericParam(searchParams.get("radius"), 1);
+    const limit = numericParam(searchParams.get("limit"), 20);
 
-    if (isNaN(lat) || isNaN(lng)) {
+    if (!isValidCoordinate({ latitude: lat, longitude: lng })) {
       return NextResponse.json(
-        { error: "lat and lng query parameters are required" },
+        { error: "lat must be between -90 and 90 and lng between -180 and 180" },
+        { status: 400 }
+      );
+    }
+    if (!Number.isFinite(radius) || radius < 0 || !isPositiveInteger(limit)) {
+      return NextResponse.json(
+        { error: "radius must be finite and non-negative; limit must be a positive integer" },
         { status: 400 }
       );
     }

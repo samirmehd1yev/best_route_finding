@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { queryRouteCoordinates, queryRoutesByBusAndDirection } from "@/lib/db";
+import { isPositiveInteger, numericParam } from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const busId = parseInt(searchParams.get("busId") || "");
-    const direction = parseInt(searchParams.get("direction") || "1");
+    const busId = numericParam(searchParams.get("busId"));
+    const direction = numericParam(searchParams.get("direction"), 1);
 
-    if (isNaN(busId)) {
+    if (!isPositiveInteger(busId) || (direction !== 1 && direction !== 2)) {
       return NextResponse.json(
-        { error: "busId query parameter is required" },
+        { error: "busId must be a positive integer and direction must be 1 or 2" },
         { status: 400 }
       );
     }

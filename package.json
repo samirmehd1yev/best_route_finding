@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "tsc -p tsconfig.test.json && node --test .test-build/tests/*.test.js",
+    "test:e2e": "npm run build && playwright test",
     "typecheck": "tsc --noEmit",
     "inspect-db": "node scripts/inspect-db.js",
     "inspect-data": "node scripts/inspect-data.js"
@@ -48,6 +49,7 @@
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@types/better-sqlite3": "^7.6.13",
     "typescript": "5.9.3"
   }

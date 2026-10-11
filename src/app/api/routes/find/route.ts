@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGraph } from "@/lib/graph";
 import { findRoutes } from "@/lib/routing";
+import { isPositiveInteger } from "@/lib/validation";
 
 export async function POST(request: NextRequest) {
+  let body;
   try {
-    const body = await request.json();
-    const { fromStopId, toStopId } = body;
-
-    if (!fromStopId || !toStopId) {
-      return NextResponse.json(
-        { error: "fromStopId and toStopId are required" },
-        { status: 400 }
-      );
-    }
-
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 });
+  }
+  const { fromStopId, toStopId } = body ?? {};
+  if (!isPositiveInteger(fromStopId) || !isPositiveInteger(toStopId)) {
+    return NextResponse.json(
+      { error: "fromStopId and toStopId must be positive integer IDs" },
+      { status: 400 }
+    );
+  }
+  try {
     if (fromStopId === toStopId) {
       return NextResponse.json(
         { error: "Start and destination must be different stops" },

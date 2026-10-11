@@ -1,6 +1,11 @@
-import type { StopDetail } from "./types";
+import type { Coordinate, StopDetail } from "./types";
 
 export const EARTH_RADIUS_KM = 6371;
+
+export function isValidCoordinate(point: Coordinate): boolean {
+  return Number.isFinite(point.latitude) && Math.abs(point.latitude) <= 90 &&
+    Number.isFinite(point.longitude) && Math.abs(point.longitude) <= 180;
+}
 
 function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -32,7 +37,10 @@ export function findNearbyStops(
   radiusKm: number = 1.0,
   limit: number = 20
 ): Array<StopDetail & { distance: number }> {
+  if (!isValidCoordinate({ latitude: lat, longitude: lon }) ||
+    !Number.isFinite(radiusKm) || radiusKm < 0 || !Number.isSafeInteger(limit) || limit <= 0) return [];
   const withDistance = stops
+    .filter(isValidCoordinate)
     .map((stop) => ({
       ...stop,
       distance: haversine(lat, lon, stop.latitude, stop.longitude),

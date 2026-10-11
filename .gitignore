@@ -17,6 +17,8 @@ nul
 # testing
 /coverage
 /.test-build/
+/test-results/
+/playwright-report/
 __pycache__/
 
 # next.js
