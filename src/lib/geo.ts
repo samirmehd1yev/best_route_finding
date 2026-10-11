@@ -1,4 +1,6 @@
-const EARTH_RADIUS_KM = 6371;
+import type { StopDetail } from "./types";
+
+export const EARTH_RADIUS_KM = 6371;
 
 function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -18,17 +20,18 @@ export function haversine(
       Math.cos(toRad(lat2)) *
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const clamped = Math.max(0, Math.min(1, a));
+  const c = 2 * Math.atan2(Math.sqrt(clamped), Math.sqrt(1 - clamped));
   return EARTH_RADIUS_KM * c;
 }
 
 export function findNearbyStops(
   lat: number,
   lon: number,
-  stops: Array<{ id: number; latitude: number; longitude: number; name: string; code: string; is_transport_hub: boolean }>,
+  stops: StopDetail[],
   radiusKm: number = 1.0,
   limit: number = 20
-): Array<{ id: number; latitude: number; longitude: number; name: string; code: string; is_transport_hub: boolean; distance: number }> {
+): Array<StopDetail & { distance: number }> {
   const withDistance = stops
     .map((stop) => ({
       ...stop,

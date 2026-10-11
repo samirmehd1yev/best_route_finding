@@ -141,6 +141,7 @@ Key functions:
 - `queryBuses()` — all bus lines with metadata
 - `queryBusStops()` — all bus-stop sequences ordered by bus, direction, position
 - `queryRouteCoordinates(routeId)` — GPS polyline for a specific route
+- `queryAllRouteCoordinates()` — ordered polylines loaded during graph construction
 - `queryRoutes()` — all route variants
 - `queryRoutesByBusAndDirection(busId, directionTypeId)` — single route ID lookup
 - `getDataLastUpdated()` — `MAX(created_at)` from `buses`, returned as ISO-8601
@@ -156,19 +157,21 @@ The `TransitGraph` class builds and caches the bus network graph:
 - **Stop index:** `Map<stopId, StopDetail>` — stop metadata lookup
 - **Bus index:** `Map<busId, Bus>` — bus metadata lookup
 - **Build process:** Loads all data from SQLite, constructs bus edges + walking edges
-- **Singleton:** `getGraph()` returns a cached instance (module-level variable)
+- **Singleton:** `getGraph()` awaits a shared build promise and returns the completed cached instance; failures permit retry
 
-Walking-edge construction is guarded so an edge is only added when both
-endpoints are actually served by buses *and* `stopB` provides a route
-`stopA` doesn't.
+Walking edges connect physical stops within 300 m in both directions,
+including stops on the same line. Bus edges retain their direction and
+sequence positions, along with clipped road geometry and road distance.
+Exact repeated copies of a complete stop sequence are collapsed before
+edges are created.
 
 ### 3. Routing Layer (`src/lib/routing.ts`)
 
 Standalone functions for route computation:
 
 - `findRoutes(graph, source, target, mode, k)` — Yen's k-shortest paths (default k=3, the API uses k=1 which short-circuits Yen's loop)
-- `dijkstraFull(graph, source, target, mode, excludedEdges?, excludedNodes?)` — full Dijkstra with path reconstruction
-- `reconstructRoute(graph, pathKeys, prevMap)` — builds `RouteResult` from path
+- `shortestPath(graph, start, target, mode, excludedTransitions?, excludedStates?)` — Dijkstra retaining bus, direction, sequence, and boarding history
+- `reconstructRoute(graph, path)` — builds segments, road geometry, and totals including transfer waits
 - `edgeCost(edge, isTransfer, mode)` — mode-specific cost function
 - `PriorityQueue<T>` — binary min-heap implementation
 
@@ -177,6 +180,11 @@ Standalone functions for route computation:
 Utility functions:
 - `haversine(lat1, lon1, lat2, lon2)` — great-circle distance in km
 - `findNearbyStops(lat, lon, stops, radiusKm, limit)` — brute-force nearest stop search
+
+`src/lib/geometry.ts` aligns ordered stops with stored polylines in either
+orientation. It clips each bus leg at projected stop positions and sums
+distance along the road. Missing or unmatched geometry falls back to the
+stop coordinates.
 
 ### 5. API Layer (`src/app/api/`)
 
@@ -196,7 +204,7 @@ Next.js App Router API routes:
 Client-side React components:
 
 - **`page.tsx`** — Main page, state management (selected stops, route, mobile view), `useIsMobile()` hook for responsive breakpoint detection at 768 px. Nearest-stop lookup uses `haversine()` from `@/lib/geo` (great-circle distance).
-- **`Map.tsx`** — Leaflet map (dynamically imported, no SSR). Shows all stops as CircleMarkers, route polylines (color-coded per segment, dashed for walking), start/end/transfer markers, user location.
+- **`Map.tsx`** — Leaflet map (dynamically imported, no SSR). Shows stops as CircleMarkers and draws each segment's returned road geometry, with dashed walking connections. The viewport includes geometry as well as stop coordinates.
 - **`StopSearch.tsx`** — Text input with inline dropdown, filters stops by name/code, touch-friendly with `onTouchEnd` handlers.
 - **`JourneyCard.tsx`** — Route timeline visualization with summary stats (distance, time, buses, transfers) and segment-by-segment breakdown.
 - **`LocationButton.tsx`** — Browser geolocation API, finds nearest stop on success.

@@ -102,7 +102,7 @@ ISO-8601 in UTC. The `getDataLastUpdated()` API uses
 ## Data Quality Notes
 
 1. **Coordinate parsing.** The upstream API ships period decimals, comma decimals, and grouped digit strings. Grouped values have two degree digits for this region: `"49,961,721"` means `49.961721`, while `"4,049,233"` means `40.49233`. The parser accepts grouped values only within magnitude 38–51, and ordinary decimals within `[-180, 180]`. Migration `002_repair_grouped_latitudes.sql` repairs the two affected stop IDs in old snapshots.
-2. **Intermediate distances.** `intermediate_distance` in `bus_stops` is frequently null. Distance between stops is therefore computed at runtime via the Haversine formula in `src/lib/geo.ts`.
+2. **Intermediate distances.** `intermediate_distance` in `bus_stops` is frequently null. The graph uses the length of matched road geometry when available and otherwise falls back to great-circle distance between stops.
 3. **Stop naming.** Stop names are in Azerbaijani. `m/st` = metro station, `NMM` = terminal, `k.` = street, `qəs.` = settlement.
 4. **Direction pairs.** Most buses have exactly two route entries (forward + return), totalling ~396 routes for ~207 buses.
 5. **Coordinate precision.** Typically 6–7 decimal places (~10 cm precision).

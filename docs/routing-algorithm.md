@@ -1,271 +1,162 @@
 # Routing Algorithm
 
-## Graph Model
+## Graph construction
 
-The Baku bus network is modeled as a **weighted directed multigraph** G = (V, E):
+`src/lib/graph.ts` builds a directed multigraph from the SQLite snapshot.
+Physical stops are nodes; bus legs and nearby walking connections are edges.
 
-- **Vertices (V):** Each physical bus stop from `stop_details` (~3,444 stops)
-- **Edges (E):** Two types of directed edges:
-  1. **Bus edges:** Consecutive stops on a bus route (same direction). Multiple edges may exist between two stops served by different bus lines (multigraph property).
-  2. **Walking edges:** Bidirectional connections between nearby stops within 300 m **when both endpoints are served by buses** *and* `stopB` exposes at least one bus line `stopA` doesn't. `busId = -1`, `busNumber = "walk"`, walk speed: 4.5 km/h.
-- **Edge weights:** Distance (km) and time (minutes), combined via a mode-specific cost function.
+Bus stops are grouped by bus and direction, then sorted by `bus_stop_id`.
+Exact repetitions of a complete stop sequence are collapsed to one copy.
+This prevents duplicated snapshot rows from creating a terminal-to-start
+shortcut or dividing the route duration across duplicate copies. Individual
+repeated stops within a route remain distinct occurrences.
 
-## Graph Construction
+Each bus edge retains its bus ID, direction, source and destination sequence
+positions, and a unique edge ID. These distinguish parallel services and
+repeated visits to the same physical stop.
 
-Implemented in `src/lib/graph.ts` as the `TransitGraph` class.
+Distance is chosen in this order:
 
-### Step 1: Bus Route Edges
+1. A finite, positive `intermediate_distance` supplied for the destination stop.
+2. Length of the recorded road geometry between the two stops.
+3. Great-circle distance between the stops if neither is usable.
 
-For each bus and each direction (forward=1, return=2), stops are sorted by `bus_stop_id` (ordinal position). Consecutive stops become directed edges:
+Time remains an estimate: a positive `duration_minuts` is divided evenly
+among the direction's legs. A missing or invalid duration defaults to
+30 minutes. The data does not supply per-leg traffic or scheduled departures.
 
-```
-For each (bus_id, direction_type_id) group in bus_stops:
-  Sort stops by bus_stop_id ascending
-  segmentTime = bus.duration_minuts / max(stopCount - 1, 1)
+Walking edges connect every pair of physical stops within 300 m in both
+directions, at 4.5 km/h. This includes stops served by the same line,
+opposite directions, and access to a start or destination stop. Connectivity
+does not depend on input order or which bus set contains the other.
+A latitude-distance lower bound avoids unnecessary distance calculations
+without rejecting connections near the poles or across the date line.
+The limit applies to each walking edge; successive walking legs are allowed.
 
-  For i = 0 to stopCount - 2:
-    distance = haversine(stops[i], stops[i+1])
-    Add edge: stops[i].stop_id -> stops[i+1].stop_id
-      busId:      bus.id
-      busNumber:  bus.number
-      distance:   distance (km)
-      time:       segmentTime (minutes, uniform per bus)
-```
+## Recorded road geometry
 
-Time estimation is **uniform** per bus: each route's `duration_minuts` is
-divided equally across all segments in that direction. This is a
-deliberate simplification — the upstream API does not publish per-leg
-timings and stop-level congestion data isn't available — so we trade
-accuracy for determinism. It's accurate enough to rank alternative routes
-but isn't a substitute for a live ETA.
+`src/lib/geometry.ts` aligns the ordered stop sequence with the route's
+`route_coordinates`. It considers projections onto polyline segments and
+the recorded vertices. Dynamic programming chooses nondecreasing positions
+along the flow, so repeated stops and loops retain their travel order.
 
-### Step 2: Walking Transfer Edges
+Both polyline orientations are evaluated because some stored flows run
+opposite to their stop sequence. The orientation with the lower matching
+cost is used. Matching minimizes squared snap distance; positions more
+than 300 m from a stop receive a fixed unmatched cost. This prevents one
+missing or corrupt stop coordinate from dominating the alignment.
 
-An O(n²) pass over all stop pairs with a quick lat/lng pre-filter:
+Each bus edge receives only its portion of the flow, clipped at the two
+matched stop positions. Missing or unmatched geometry falls back to the
+stop coordinates. Road distance sums Haversine distances along the matched
+polyline instead of measuring a direct line between its endpoints.
 
-```
-For each pair (stopA, stopB) where A.index < B.index:
-  if |A.lat - B.lat| > 0.004: skip          # ~400m quick filter
-  if |A.lng - B.lng| > 0.005: skip
-  dist = haversine(A, B)
-  if dist > 0.3 km: skip
+During reconstruction, adjacent edge geometries are concatenated and shared
+boundary coordinates are removed. Every `RouteSegment` includes
+`directionTypeId` and `geometry: { latitude, longitude }[]`.
+`Map.tsx` draws these coordinates and includes them in its viewport bounds.
+Walking segments remain direct, dashed connections; the database does not
+contain pedestrian paths.
 
-  busesA = buses serving stopA
-  busesB = buses serving stopB
-  if busesA is empty or busesB is empty: skip   # walking shortcut is useless
-  if every bus in busesB is already in busesA: skip   # walking offers no new line
+## Cache and initialization
 
-  walkTime = (dist / 4.5) * 60              # minutes at 4.5 km/h
-  Add bidirectional edges: A <-> B
-    busId: -1, busNumber: "walk", distance: dist, time: walkTime
-```
+`getGraph()` always awaits `build()`. Concurrent requests share the same
+build promise and receive the completed graph. A failed load clears partial
+indexes and permits a later retry. A successful graph is reused for the
+lifetime of the process.
 
-The "different bus" check ensures walking edges only connect stops where
-the walk provides access to a new bus line. The `aHasBuses && bHasBuses`
-guard makes the rule defensive: it never adds a walk edge to a stop that
-has no buses (you can't board anything there).
+## Search state and transfers
 
-### Graph Caching
-
-The graph is built once via `getGraph()` (module-level singleton). It
-persists across requests for the lifetime of the Node process. The
-`build()` method is idempotent — it no-ops if already built.
-
----
-
-## Edge Weight / Cost Function
-
-Implemented in `src/lib/routing.ts` function `edgeCost()`.
-
-Three optimization modes exist, each with its own transfer penalty:
-
-| Mode | Cost Formula | Transfer Penalty |
-|------|-------------|-----------------|
-| `shortest` | `edge.distance + penalty` | 0.5 km equivalent |
-| `fastest`  | `edge.time + penalty` | 5 minutes |
-| `balanced` | `0.3 * edge.distance + 0.5 * edge.time + 0.2 * penalty` | 10 (composite units) |
-
-Constants from code:
-
-```typescript
-TRANSFER_PENALTY_DISTANCE = 0.5  // km, used by "shortest"
-TRANSFER_PENALTY_TIME     = 5    // minutes, used by "fastest"
-// balanced: 0.2 * 10 = 2 composite units per transfer
-```
-
-A transfer is detected when the current bus ID is non-null and differs
-from the edge's bus ID. Walking edges (`busId = -1`) trigger a transfer
-penalty when switching from a bus.
-
-The API exposes only **balanced** mode with `k=1` (single best route).
-
----
-
-## Algorithm: Modified Dijkstra's
-
-### State Space
-
-Dijkstra operates over **expanded states** `(stopId, busId)` rather than
-just stop IDs. This allows tracking which bus the passenger is currently
-on, so transfer penalties are applied accurately.
-
-- State key format: `"stopId:busId"` (e.g., `"1234:56"` or `"1234:null"` at the source)
-- The source state is `(source, null)` — no bus yet
-
-### Algorithm
+Dijkstra uses the state:
 
 ```
-function dijkstra(graph, source, target, mode, excludedEdges?, excludedNodes?):
-  dist = Map<stateKey, number>
-  prev = Map<stateKey, {prevState, edge}>
-  pq = MinHeap<stateKey>
-
-  startKey = "source:null"
-  dist[startKey] = 0
-  pq.push(startKey, 0)
-
-  while pq is not empty:
-    currentKey = pq.pop()
-    (currentStop, currentBus) = parse(currentKey)
-    currentDist = dist[currentKey]
-
-    if currentStop == target:
-      return reconstructPath(prev, currentKey)
-
-    if excludedNodes contains currentStop (and != source): skip
-
-    for each edge from currentStop:
-      if excludedNodes contains edge.toStopId (and != target): skip
-      if excludedEdges contains "currentStop->toStop:busId": skip
-
-      isTransfer = (currentBus != null && currentBus != edge.busId)
-      cost = edgeCost(edge, isTransfer, mode)
-      nextKey = "edge.toStopId:edge.busId"
-      newDist = currentDist + cost
-
-      if newDist < dist[nextKey] (or nextKey unseen):
-        dist[nextKey] = newDist
-        prev[nextKey] = {currentKey, edge}
-        pq.push(nextKey, newDist)
-
-  return null  // no path
+(stopId, busId, directionTypeId, sequence, hasBoarded)
 ```
 
-The `excludedEdges` and `excludedNodes` parameters support Yen's
-algorithm (see below).
+At the source, the passenger is off the bus and `hasBoarded` is false.
+Walking clears the current bus, direction, and sequence while preserving
+whether a bus has already been used.
 
-### Priority Queue
+A bus edge continues a ride only when its bus, direction, and starting
+sequence match the current state. Otherwise it is a new boarding:
 
-A custom binary min-heap (`PriorityQueue<T>`) implemented in `routing.ts`.
-Supports `push(item, priority)` and `pop()`.
+- The first boarding has no transfer penalty, including after an initial walk.
+- A later boarding incurs one transfer penalty.
+- Walking itself incurs no transfer penalty.
+- Changing direction, boarding again after walking, or boarding at another
+  occurrence of the same stop requires a new ride, even on the same line.
 
----
+This applies the same transfer definition in search and reconstruction.
 
-## Algorithm: Yen's K-Shortest Paths
+## Optimization costs
 
-Implemented in `src/lib/routing.ts` function `findRoutes()`. Default
-`k=3`, but the API calls it with `k=1` — when `k=1` the spur loop never
-runs, so no work is wasted.
+For distance `d` in km, travel time `t` in minutes, and transfer indicator
+`x` (0 or 1):
 
-### Overview
+| Mode | Edge cost |
+|------|-----------|
+| `shortest` | `d + 0.5 * x` |
+| `fastest` | `t + 5 * x` |
+| `balanced` | `0.3 * d + 0.5 * t + 2 * x` |
 
-1. Find the shortest path P1 using Dijkstra.
-2. For k = 2 to K:
-   - For each node i in P(k-1):
-     - Set spur node = P(k-1)[i].
-     - Exclude edges from spur node that overlap with confirmed paths sharing the same root.
-     - Exclude root path nodes (before spur node) to force deviation.
-     - Run Dijkstra from spur node to target.
-     - If a new path is found and isn't a duplicate, add to candidates.
-   - Pick the lowest-cost candidate as Pk.
-3. Return [P1, …, PK].
+These are preference scores; shortest mode includes a transfer preference.
+Balanced mode uses its own transfer weight. Reported journey duration
+includes a five-minute wait per transfer in every mode, while segment
+times contain travel time only.
 
-### Duplicate Detection
+The binary min-heap retains each queued distance. Stale entries are skipped
+when a better distance to the same state has already been found.
+All edge costs are nonnegative, allowing termination when a target state
+is removed from the queue.
 
-Candidate paths are checked against existing results by comparing segment
-count, bus IDs, and stop counts per segment. This prevents returning
-near-identical routes.
+## Alternative routes
 
-### Complexity
+`findRoutes(graph, source, target, mode, k)` uses Yen's algorithm over
+expanded states. The default is three routes; the API requests only one.
 
-| Operation | Time | Space |
-|-----------|------|-------|
-| Graph construction | O(B·S + N²) where B·S = bus_stops, N = stops | O(V + E) |
-| Single Dijkstra | O((V·B + E) log(V·B)) where B = bus lines per stop | O(V·B) |
-| Yen's k=1 | Same as single Dijkstra | O(V·B) |
-| Yen's k=3 | O(K · P · ((V·B + E) log(V·B))) where P = path length | O(K · V·B) |
+For each deviation from the last confirmed path:
 
-With our data: V ≈ 3,444 stops, E ≈ 11,702 bus edges + walking edges. The
-graph is small enough for sub-second query times.
+1. Preserve the root's exact edges, accumulated cost, and full incoming state.
+2. Exclude only the specific transition used by confirmed paths with that root.
+3. Exclude root states preceding the spur state.
+4. Search from the spur state with its existing boarding context.
+5. Join the root and spur and queue the candidate by its complete cost.
 
----
+Candidates persist between iterations. Duplicate detection uses the complete
+ordered edge IDs, so different lines between the same stops and different
+paths with equal stop counts remain eligible.
 
-## Path Reconstruction
+Returned paths are loopless in expanded state space. A physical stop may
+appear again at a different position on a looping route. Unknown endpoints,
+unreachable targets, and nonpositive or noninteger `k` return no routes.
+A known source equal to the target produces an empty, zero-cost journey.
 
-Implemented in `reconstructRoute()`. Walks the `prev` map from target
-back to source, grouping consecutive edges by `busId` into segments:
+## Journey totals
 
-```
-function reconstructRoute(graph, pathKeys, prevMap):
-  segments = []
-  currentSegment = null
+Continuous rides and consecutive walking edges are grouped into segments.
+New boardings start new bus segments even when the bus number is unchanged.
 
-  for i = 1 to pathKeys.length - 1:
-    edge = prevMap[pathKeys[i]].edge
-    fromStop = graph.getStopInfo(parse(pathKeys[i-1]).stopId)
-    toStop = graph.getStopInfo(edge.toStopId)
+- `totalDistance`: sum of travel distances, rounded to two decimals.
+- `totalTime`: sum of travel times plus five minutes per transfer, rounded
+  to one decimal.
+- `totalTransfers`: number of boardings after the first.
+- `totalStops`: stops visited on bus segments, removing a shared boundary
+  only for adjacent bus segments at the same physical stop. Distinct stops
+  joined by walking are both counted. Walking-only journeys have zero bus stops.
 
-    if currentSegment is null or currentSegment.busId != edge.busId:
-      push currentSegment to segments (if exists)
-      currentSegment = new segment with busId, busNumber, starts with [fromStop]
+## Complexity
 
-    add toStop to currentSegment.stops
-    accumulate distance and time
+For a route with R stops and P geometry points, geometry alignment takes
+O(RP) time and space. Walking construction takes O(N²) for N physical stops.
 
-  push final currentSegment
+Let S be the number of expanded search states, T the number of transitions,
+and L the path length. Heap-based Dijkstra takes O((S + T) log(S + T));
+Yen performs at most O(KL) such searches for K results. With K=1, the
+alternative-route loop is skipped.
 
-  busSegments = segments where busId != -1
-  return {
-    segments,
-    totalDistance: sum of segment distances (rounded to 2 decimals),
-    totalTime: sum of segment times (rounded to 1 decimal),
-    totalTransfers: max(0, busSegments.length - 1),
-    totalStops: total bus stop count minus overlapping transfer stops
-  }
-```
+## Verification
 
-### Transfer Counting
-
-Only bus-to-bus changes count as transfers. Walking segments bridge bus
-segments but aren't counted as transfers themselves.
-`totalTransfers = busSegments.length - 1`.
-
----
-
-## Haversine Distance
-
-Implemented in `src/lib/geo.ts`:
-
-```
-d = 2 · R · arcsin(√(sin²(Δlat/2) + cos(lat1) · cos(lat2) · sin²(Δlon/2)))
-R = 6,371 km
-```
-
-Also provides `findNearbyStops(lat, lon, stops, radiusKm, limit)` —
-brute-force scan with distance filter and sort, used by the nearby
-stops API. The geolocation hook on the home page also uses this great
--circle distance for nearest-stop selection.
-
----
-
-## API Integration
-
-The route-finding API (`POST /api/routes/find`) calls:
-
-```typescript
-findRoutes(graph, fromStopId, toStopId, "balanced", 1)
-```
-
-It returns the single best route. The routing engine supports `k > 1`
-and other modes (`shortest`, `fastest`) internally but only `balanced`
-with `k=1` is exposed.
+Run `npm test` for deterministic regression cases, exhaustive enumeration
+of small directed graphs in all three modes, geometry alignment checks,
+concurrent initialization, and integration with the bundled SQLite data.
+Run `npm run typecheck` and `npm run build` for application validation.

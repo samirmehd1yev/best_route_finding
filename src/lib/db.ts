@@ -144,6 +144,14 @@ interface RouteCoordRow {
   sequence_order: number;
 }
 
+export async function queryAllRouteCoordinates() {
+  return getDB().prepare(
+    `SELECT route_id, latitude, longitude, sequence_order
+     FROM route_coordinates
+     ORDER BY route_id, sequence_order`
+  ).all() as (RouteCoordRow & { route_id: number })[];
+}
+
 export async function queryRouteCoordinates(routeId: number) {
   const rows = getDB()
     .prepare(
