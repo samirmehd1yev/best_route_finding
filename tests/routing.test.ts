@@ -69,7 +69,7 @@ for (const mode of ["shortest", "fastest", "balanced"] as const) {
   test(`${mode}: a walking connection between buses incurs one transfer`, () => {
     const graph = new FixtureGraph([
       leg(1, 2, 10, 1, 1), leg(2, 3, -1, 0.1, 1),
-      leg(3, 4, 20, 1, 1), leg(1, 4, 30, 3, 9),
+      leg(3, 4, 20, 1, 1), leg(1, 4, 30, 3, 12.8),
     ]);
     const [route] = findRoutes(graph, 1, 4, mode, 1);
     assert.deepEqual(stops(route), [1, 2, 3, 4]);
@@ -177,7 +177,7 @@ function pathCost(path: TestEdge[], mode: OptimizationMode): number {
     const transfer = !walking && boarded && !sameRide;
     if (mode === "shortest") cost += edge.distance + (transfer ? 0.5 : 0);
     if (mode === "fastest") cost += edge.time + (transfer ? 5 : 0);
-    if (mode === "balanced") cost += 0.3 * edge.distance + 0.5 * edge.time + (transfer ? 2 : 0);
+    if (mode === "balanced") cost += 0.3 * edge.distance + 0.5 * edge.time + (transfer ? 5 : 0);
     if (!walking) boarded = true;
     previous = walking ? undefined : edge;
   }
