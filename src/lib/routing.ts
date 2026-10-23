@@ -97,7 +97,8 @@ function edgeCost(edge: GraphEdge, transfer: boolean, mode: OptimizationMode): n
     case "fastest":
       return edge.time + (transfer ? TRANSFER_PENALTY_TIME : 0);
     case "balanced":
-      return 0.3 * edge.distance + 0.5 * edge.time + (transfer ? 2 : 0);
+      // Must exceed 0.5 * the reported 5-minute wait, or extra transfers look cheaper than riding.
+      return 0.3 * edge.distance + 0.5 * edge.time + (transfer ? 5 : 0);
   }
 }
 
