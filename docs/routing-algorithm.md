@@ -97,7 +97,7 @@ For distance `d` in km, travel time `t` in minutes, and transfer indicator
 |------|-----------|
 | `shortest` | `d + 0.5 * x` |
 | `fastest` | `t + 5 * x` |
-| `balanced` | `0.3 * d + 0.5 * t + 2 * x` |
+| `balanced` | `0.3 * d + 0.5 * t + 5 * x` |
 
 These are preference scores; shortest mode includes a transfer preference.
 Balanced mode uses its own transfer weight. Reported journey duration
