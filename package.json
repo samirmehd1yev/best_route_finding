@@ -15,7 +15,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ismat-Samadov/best_route_finding.git"
+    "url": "git+https://github.com/samirmehd1yev/best_route_finding.git"
   },
   "keywords": [
     "baku",
@@ -27,9 +27,9 @@
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/Ismat-Samadov/best_route_finding/issues"
+    "url": "https://github.com/samirmehd1yev/best_route_finding/issues"
   },
-  "homepage": "https://github.com/Ismat-Samadov/best_route_finding#readme",
+  "homepage": "https://github.com/samirmehd1yev/best_route_finding#readme",
   "engines": {
     "node": ">=22"
   },

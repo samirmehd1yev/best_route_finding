@@ -83,7 +83,7 @@ journey on both panels.
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/Ismat-Samadov/best_route_finding.git
+git clone https://github.com/samirmehd1yev/best_route_finding.git
 cd best_route_finding
 npm install
 ```
